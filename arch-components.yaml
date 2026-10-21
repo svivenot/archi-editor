@@ -1,0 +1,22 @@
+# Catalogue de composants personnalisés du Workspace
+# S'ajoute automatiquement aux composants AWS, Azure, MS SQL Server, Oracle,
+# PostgreSQL, RabbitMQ, Traefik et Keycloak intégrés à l'extension.
+
+version: "1.0"
+categories:
+  - id: custom
+    label: Briques Métier Internes
+    badgeColor: "#10B981"
+
+components:
+  - id: custom-payment-engine
+    name: Moteur de Paiement SEPA
+    category: custom
+    symbol: microservice
+    color: "#10B981"
+    shape: rounded-rect
+    defaultTech: "Java 21 / Spring Boot"
+    defaultProps:
+      pciDss: "Level 1"
+      sla: "99.99%"
+    description: "Service interne de compensation bancaire SEPA"

@@ -1,0 +1,124 @@
+{
+  "name": "archi-editor",
+  "displayName": "Archi Editor - WYSIWYG Architecture Documentation",
+  "description": "WYSIWYG editor for architecture documentation combining Markdown, connected box diagrams (AWS, Azure, SQL Server, Oracle, PostgreSQL, RabbitMQ, Traefik, Keycloak) and sequence diagrams in YAML, with PDF export.",
+  "version": "0.1.0",
+  "publisher": "sylvain",
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Visualization",
+    "Other",
+    "Notebooks"
+  ],
+  "activationEvents": [
+    "onCustomEditor:archiEditor.archDocument",
+    "onCommand:archiEditor.newDocument",
+    "onCommand:archiEditor.initComponentLibrary",
+    "onCommand:archiEditor.exportPdf",
+    "onCommand:archiEditor.openAsText"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "customEditors": [
+      {
+        "viewType": "archiEditor.archDocument",
+        "displayName": "Archi WYSIWYG Editor",
+        "selector": [
+          {
+            "filenamePattern": "*.arch.md"
+          },
+          {
+            "filenamePattern": "*.arch"
+          }
+        ],
+        "priority": "default"
+      }
+    ],
+    "commands": [
+      {
+        "command": "archiEditor.newDocument",
+        "title": "Archi Editor: Nouveau Document d'Architecture (.arch.md)",
+        "icon": "$(NewFile)"
+      },
+      {
+        "command": "archiEditor.exportPdf",
+        "title": "Archi Editor: Exporter en PDF",
+        "icon": "$(file-pdf)"
+      },
+      {
+        "command": "archiEditor.initComponentLibrary",
+        "title": "Archi Editor: Générer arch-components.yaml dans le Workspace",
+        "icon": "$(library)"
+      },
+      {
+        "command": "archiEditor.openAsText",
+        "title": "Archi Editor: Ouvrir la source Markdown/YAML brute",
+        "icon": "$(code)"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "when": "activeCustomEditorId == archiEditor.archDocument",
+          "command": "archiEditor.exportPdf",
+          "group": "navigation@1"
+        },
+        {
+          "when": "activeCustomEditorId == archiEditor.archDocument",
+          "command": "archiEditor.openAsText",
+          "group": "navigation@2"
+        }
+      ]
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run build",
+    "build": "npm run build:extension && npm run build:mcp && npm run build:webview",
+    "package:vsix": "npm run build && node scripts/package-vsix.mjs",
+    "build:extension": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
+    "build:mcp": "esbuild src/mcp/server.ts --bundle --outfile=dist/mcp-server.js --format=cjs --platform=node --target=node18 --banner:js=\"#!/usr/bin/env node\"",
+    "build:webview": "vite build",
+    "dev:webview": "vite",
+    "typecheck": "tsc --noEmit && tsc -p tsconfig.webview.json --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@dagrejs/dagre": "^1.1.4",
+    "@modelcontextprotocol/sdk": "^1.32.1",
+    "@tiptap/extension-placeholder": "^2.10.3",
+    "@tiptap/extension-table": "^2.10.3",
+    "@tiptap/extension-table-cell": "^2.10.3",
+    "@tiptap/extension-table-header": "^2.10.3",
+    "@tiptap/extension-table-row": "^2.10.3",
+    "@tiptap/react": "^2.10.3",
+    "@tiptap/starter-kit": "^2.10.3",
+    "@xyflow/react": "^12.3.5",
+    "html-to-image": "^1.11.11",
+    "jspdf": "^2.5.2",
+    "lucide-react": "^0.460.0",
+    "marked": "^15.0.3",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "turndown": "^7.2.0",
+    "turndown-plugin-gfm": "^1.0.2",
+    "yaml": "^2.6.1",
+    "zod": "^4.6.7"
+  },
+  "devDependencies": {
+    "@types/node": "^20.17.6",
+    "@types/react": "^18.3.12",
+    "@types/react-dom": "^18.3.1",
+    "@types/turndown": "^5.0.5",
+    "@types/vscode": "^1.85.0",
+    "@vitejs/plugin-react": "^4.3.4",
+    "esbuild": "^0.24.0",
+    "typescript": "^5.6.3",
+    "vite": "^5.4.11",
+    "vitest": "^2.1.5"
+  },
+  "bin": {
+    "archi-editor-mcp": "./dist/mcp-server.js"
+  }
+}

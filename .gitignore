@@ -1,0 +1,7 @@
+node_modules/
+dist/
+*.vsix
+.vsix-stage/
+.playwright-mcp/
+.DS_Store
+.claude/settings.local.json

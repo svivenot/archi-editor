@@ -1,0 +1,22 @@
+# Catalogue de composants personnalisable pour Archi Editor
+# Ce fichier permet d'étendre ou de surcharger les composants intégrés (AWS, Azure,
+# MS SQL Server, Oracle, PostgreSQL, RabbitMQ, Traefik, Keycloak).
+
+version: "1.0"
+categories:
+  - id: custom
+    label: Composants Métier Internes
+    badgeColor: "#10B981"
+
+components:
+  - id: custom-erp-bridge
+    name: Connecteur ERP Interne
+    category: custom
+    symbol: microservice
+    color: "#10B981"
+    shape: rounded-rect
+    defaultTech: ".NET 8 Worker"
+    defaultProps:
+      team: "Core Integration"
+      sla: "99.95%"
+    description: "Passerelle métier vers l'ERP historique"
