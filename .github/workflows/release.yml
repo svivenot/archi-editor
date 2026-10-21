@@ -1,0 +1,63 @@
+name: Release VSIX
+
+# - Push d'un tag vX.Y.Z : build, tests, puis release GitHub avec le .vsix en pièce jointe.
+# - Lancement manuel (onglet Actions) : build et tests, le .vsix est disponible en artefact.
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+
+      - name: Installer les dépendances
+        run: npm ci
+
+      - name: Vérifier les types
+        run: npm run typecheck
+
+      - name: Tests
+        run: npm test
+
+      - name: Vérifier que le tag correspond à la version de package.json
+        if: startsWith(github.ref, 'refs/tags/')
+        run: |
+          PKG_VERSION="v$(node -p "require('./package.json').version")"
+          if [ "$PKG_VERSION" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::Le tag $GITHUB_REF_NAME ne correspond pas à la version de package.json ($PKG_VERSION)"
+            exit 1
+          fi
+
+      - name: Construire le VSIX
+        id: vsix
+        run: |
+          npm run package:vsix
+          echo "file=$(ls *.vsix)" >> "$GITHUB_OUTPUT"
+
+      - name: Publier l'artefact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ steps.vsix.outputs.file }}
+          path: ${{ steps.vsix.outputs.file }}
+
+      - name: Créer la release GitHub
+        if: startsWith(github.ref, 'refs/tags/')
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release create "$GITHUB_REF_NAME" "${{ steps.vsix.outputs.file }}" \
+            --title "Archi Editor $GITHUB_REF_NAME" \
+            --generate-notes \
+            --notes "Installation : téléchargez le fichier .vsix ci-dessous puis, dans VS Code, \`Extensions > … > Install from VSIX…\` ou \`code --install-extension ${{ steps.vsix.outputs.file }}\`."

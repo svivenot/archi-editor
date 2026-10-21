@@ -59,6 +59,18 @@ Le catalogue personnalisé est cherché en remontant depuis le dossier du fichie
   avec la séquence de paiement »
 - « Ajoute dans `docs/architecture.arch.md` une séquence de rafraîchissement de jeton Keycloak »
 
+## Publier une release
+
+Le workflow `.github/workflows/release.yml` construit l'extension, lance les tests et publie le `.vsix`
+en pièce jointe d'une release GitHub à chaque tag `vX.Y.Z` (qui doit correspondre à `version` dans `package.json`) :
+
+```bash
+npm version patch   # met à jour package.json et crée le tag vX.Y.Z
+git push --follow-tags
+```
+
+Un lancement manuel depuis l'onglet *Actions* produit le `.vsix` en artefact, sans créer de release.
+
 ## Licence
 
 Distribué sous licence [MIT](LICENSE).

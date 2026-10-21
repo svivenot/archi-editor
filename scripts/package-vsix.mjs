@@ -51,6 +51,7 @@ const vsixManifest = `<?xml version="1.0" encoding="utf-8"?>
   <Assets>
     <Asset Type="Microsoft.VisualStudio.Code.Manifest" Path="extension/package.json" Addressable="true" />
     <Asset Type="Microsoft.VisualStudio.Services.Content.Details" Path="extension/README.md" Addressable="true" />
+    <Asset Type="Microsoft.VisualStudio.Services.Content.License" Path="extension/LICENSE" Addressable="true" />
   </Assets>
 </PackageManifest>`;
 fs.writeFileSync(path.join(stageDir, 'extension.vsixmanifest'), vsixManifest, 'utf-8');
@@ -58,6 +59,7 @@ fs.writeFileSync(path.join(stageDir, 'extension.vsixmanifest'), vsixManifest, 'u
 // 3. Copy extension files
 fs.copyFileSync(path.join(rootDir, 'package.json'), path.join(extDir, 'package.json'));
 fs.copyFileSync(path.join(rootDir, 'README.md'), path.join(extDir, 'README.md'));
+fs.copyFileSync(path.join(rootDir, 'LICENSE'), path.join(extDir, 'LICENSE'));
 fs.cpSync(path.join(rootDir, 'dist'), path.join(extDir, 'dist'), { recursive: true });
 fs.cpSync(path.join(rootDir, 'resources'), path.join(extDir, 'resources'), { recursive: true });
 
