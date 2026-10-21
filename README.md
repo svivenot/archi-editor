@@ -58,3 +58,7 @@ Le catalogue personnalisé est cherché en remontant depuis le dossier du fichie
 - « Crée un dossier d'architecture pour une API de paiement sur Azure (APIM, AKS, Service Bus, Azure SQL)
   avec la séquence de paiement »
 - « Ajoute dans `docs/architecture.arch.md` une séquence de rafraîchissement de jeton Keycloak »
+
+## Licence
+
+Distribué sous licence [MIT](LICENSE).

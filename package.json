@@ -4,6 +4,11 @@
   "description": "WYSIWYG editor for architecture documentation combining Markdown, connected box diagrams (AWS, Azure, SQL Server, Oracle, PostgreSQL, RabbitMQ, Traefik, Keycloak) and sequence diagrams in YAML, with PDF export.",
   "version": "0.1.0",
   "publisher": "sylvain",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/svivenot/archi-editor.git"
+  },
   "engines": {
     "vscode": "^1.85.0"
   },
