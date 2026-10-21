@@ -11,7 +11,16 @@ Extension VS Code permettant d'éditer en **WYSIWYG** des documents d'architectu
   - **Microsoft Azure** : Resource Group, VNet, VM, AKS, App Service, Functions, APIM, Application Gateway, Front Door, Azure SQL, Cosmos DB, Blob Storage, Redis, Service Bus, Event Grid, Entra ID, Key Vault.
 - **Export en PDF** en un clic depuis la barre d'outils ou la palette de commandes VS Code (`Archi Editor: Exporter en PDF`).
 
-## Lancer l'extension dans VS Code
+## Installer l'extension
+
+Téléchargez `archi-editor-X.Y.Z.vsix` depuis la [dernière release](https://github.com/svivenot/archi-editor/releases/latest),
+puis dans VS Code : *Extensions > … > Install from VSIX…*, ou en ligne de commande :
+
+```bash
+code --install-extension archi-editor-X.Y.Z.vsix
+```
+
+## Lancer l'extension en développement dans VS Code
 
 1. Ouvrez ce dossier dans VS Code.
 2. Appuyez sur **`F5`** (la configuration `.vscode/launch.json` compile automatiquement l'extension et ouvre une fenêtre *Extension Development Host* sur le fichier d'exemple `examples/architecture-demo.arch.md`).
@@ -33,24 +42,92 @@ les références, calcule la mise en page (Dagre, conteneurs imbriqués via `par
 | `arch_layout_diagram` | Recalcule la mise en page d'un `arch-box` (LR ou TB) |
 | `arch_validate_document` | YAML, `componentRef`, liens, participants |
 
-### Installation
+### Installation du serveur MCP et de l'agent
+
+Prérequis : [Claude Code](https://docs.claude.com/claude-code), Node.js 18 ou plus récent et git.
+
+#### 1. Récupérer et construire le serveur MCP
 
 ```bash
-npm install && npm run build:mcp
+git clone https://github.com/svivenot/archi-editor.git ~/archi-editor
+cd ~/archi-editor
+npm install
+npm run build:mcp      # produit dist/mcp-server.js (fichier autonome)
 ```
 
-- **Dans ce dépôt** : `.mcp.json` déclare déjà le serveur `archi-editor` (Claude Code demande
-  de l'approuver au premier lancement). L'agent `arch-designer` est dans `.claude/agents/`.
-- **Dans tous vos projets** :
+#### 2. Déclarer le serveur MCP dans Claude Code
 
-  ```bash
-  claude mcp add --scope user archi-editor -- node /chemin/vers/archi-editor/dist/mcp-server.js
-  cp .claude/agents/arch-designer.md ~/.claude/agents/
-  ```
+Pour l'utiliser dans **tous vos projets** (portée utilisateur) :
 
-Les chemins relatifs sont résolus depuis le dossier où Claude Code est lancé (ou `ARCH_WORKSPACE`).
-Le catalogue personnalisé est cherché en remontant depuis le dossier du fichier
-(`arch-components.yaml`, `arch-components.yml`, `.arch/components.yaml`).
+```bash
+claude mcp add --scope user archi-editor -- node ~/archi-editor/dist/mcp-server.js
+```
+
+Pour le partager avec l'équipe d'**un seul projet**, ajoutez plutôt un fichier `.mcp.json` à la racine de
+ce projet (Claude Code demandera de l'approuver au premier lancement) :
+
+```json
+{
+  "mcpServers": {
+    "archi-editor": {
+      "command": "node",
+      "args": ["/chemin/absolu/vers/archi-editor/dist/mcp-server.js"]
+    }
+  }
+}
+```
+
+> Dans le dépôt archi-editor lui-même, `.mcp.json` est déjà présent : il suffit de lancer `claude`
+> depuis ce dossier après le `npm run build:mcp`.
+
+#### 3. Installer l'agent `arch-designer`
+
+L'agent est un simple fichier Markdown à copier dans le dossier des agents de Claude Code :
+
+```bash
+# Pour tous vos projets
+mkdir -p ~/.claude/agents
+cp ~/archi-editor/.claude/agents/arch-designer.md ~/.claude/agents/
+
+# Ou pour un seul projet (à versionner avec lui)
+mkdir -p .claude/agents
+cp ~/archi-editor/.claude/agents/arch-designer.md .claude/agents/
+```
+
+Sans cloner le dépôt, le fichier peut aussi être téléchargé directement :
+
+```bash
+curl -fsSL -o ~/.claude/agents/arch-designer.md \
+  https://raw.githubusercontent.com/svivenot/archi-editor/main/.claude/agents/arch-designer.md
+```
+
+#### 4. Vérifier
+
+```bash
+claude mcp list        # archi-editor doit apparaître comme connecté
+```
+
+Dans une session Claude Code (relancée après l'installation), `/mcp` affiche les 9 outils `arch_*`
+et `/agents` liste `arch-designer`. Il n'est pas obligatoire de nommer l'agent : Claude Code le
+sollicite de lui-même pour les demandes de dossiers d'architecture, mais vous pouvez l'appeler
+explicitement (« utilise arch-designer pour… »).
+
+#### Mise à jour
+
+```bash
+cd ~/archi-editor && git pull && npm install && npm run build:mcp
+cp .claude/agents/arch-designer.md ~/.claude/agents/   # si l'agent a évolué
+```
+
+#### Fonctionnement
+
+- Les chemins de fichiers relatifs sont résolus depuis le dossier où Claude Code est lancé
+  (surchargeable avec la variable d'environnement `ARCH_WORKSPACE`).
+- Le catalogue personnalisé est cherché en remontant depuis le dossier du fichier généré
+  (`arch-components.yaml`, `arch-components.yml`, `.arch/components.yaml`) : vos composants
+  métier y sont donc utilisables par l'agent.
+- Les fichiers produits s'ouvrent en WYSIWYG dans VS Code avec l'extension (voir les
+  [releases](https://github.com/svivenot/archi-editor/releases) pour le `.vsix`).
 
 ### Exemples de demandes
 
