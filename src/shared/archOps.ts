@@ -1,6 +1,7 @@
 import dagre from '@dagrejs/dagre';
 import {
   ArchBoxDiagram,
+  ArchDbDiagram,
   ArchDocumentBlock,
   ArchSeqDiagram,
   ComponentDefinition,
@@ -125,6 +126,52 @@ export function validateSeqDiagram(
   return issues;
 }
 
+export function validateDbDiagram(diagram: ArchDbDiagram): ArchIssue[] {
+  const issues: ArchIssue[] = [];
+  const tableIds = new Set(diagram.tables.map((t) => t.id));
+
+  for (const dup of findDuplicates(diagram.tables.map((t) => t.id))) {
+    issues.push({ level: 'error', message: `Identifiant de table dupliqué : "${dup}"` });
+  }
+  for (const dup of findDuplicates(diagram.relations.map((r) => r.id))) {
+    issues.push({ level: 'error', message: `Identifiant de relation dupliqué : "${dup}"` });
+  }
+
+  for (const t of diagram.tables) {
+    if (t.columns.length === 0) {
+      issues.push({ level: 'warning', message: `Table "${t.name}" : aucune colonne définie` });
+    }
+    for (const dup of findDuplicates(t.columns.map((c) => c.name))) {
+      issues.push({ level: 'warning', message: `Table "${t.name}" : colonne dupliquée "${dup}"` });
+    }
+  }
+
+  for (const r of diagram.relations) {
+    const srcTable = diagram.tables.find((t) => t.id === r.source);
+    const tgtTable = diagram.tables.find((t) => t.id === r.target);
+    if (!tableIds.has(r.source)) {
+      issues.push({ level: 'error', message: `Relation "${r.id}" : table source "${r.source}" introuvable` });
+    }
+    if (!tableIds.has(r.target)) {
+      issues.push({ level: 'error', message: `Relation "${r.id}" : table cible "${r.target}" introuvable` });
+    }
+    if (srcTable && r.sourceColumn && !srcTable.columns.some((c) => c.name === r.sourceColumn)) {
+      issues.push({
+        level: 'warning',
+        message: `Relation "${r.id}" : colonne source "${r.sourceColumn}" absente de "${srcTable.name}"`,
+      });
+    }
+    if (tgtTable && r.targetColumn && !tgtTable.columns.some((c) => c.name === r.targetColumn)) {
+      issues.push({
+        level: 'warning',
+        message: `Relation "${r.id}" : colonne cible "${r.targetColumn}" absente de "${tgtTable.name}"`,
+      });
+    }
+  }
+
+  return issues;
+}
+
 export function validateBlocks(
   blocks: ArchDocumentBlock[],
   library: ComponentLibrary
@@ -140,6 +187,8 @@ export function validateBlocks(
         ? validateBoxDiagram(block.boxDiagram, library)
         : block.type === 'arch-seq' && block.seqDiagram
         ? validateSeqDiagram(block.seqDiagram, library)
+        : block.type === 'arch-db' && block.dbDiagram
+        ? validateDbDiagram(block.dbDiagram)
         : [];
     for (const issue of blockIssues) {
       issues.push({ ...issue, blockIndex });
@@ -317,6 +366,58 @@ export function autoLayoutBoxDiagram(
         delete laidOut.height;
       }
       return laidOut;
+    }),
+  };
+}
+
+// ============================================================================
+// Mise en page automatique des schémas de base de données (Dagre)
+// ============================================================================
+
+// Dimensions approximatives des cartes de table rendues par ArchDbEditor
+const DB_TABLE_WIDTH = 240;
+const DB_HEADER_HEIGHT = 44;
+const DB_ROW_HEIGHT = 24;
+
+function estimateTableHeight(columnsCount: number): number {
+  return DB_HEADER_HEIGHT + Math.max(1, columnsCount) * DB_ROW_HEIGHT + 8;
+}
+
+/**
+ * Calcule les positions des tables d'un schéma de base de données à partir des relations.
+ */
+export function autoLayoutDbDiagram(
+  diagram: ArchDbDiagram,
+  options: LayoutOptions = {}
+): ArchDbDiagram {
+  const direction = options.direction || 'LR';
+  const g = new dagre.graphlib.Graph();
+  g.setGraph({ rankdir: direction, nodesep: 70, ranksep: 140, marginx: 40, marginy: 40 });
+  g.setDefaultEdgeLabel(() => ({}));
+
+  for (const t of diagram.tables) {
+    g.setNode(t.id, { width: DB_TABLE_WIDTH, height: estimateTableHeight(t.columns.length) });
+  }
+  for (const r of diagram.relations) {
+    if (g.hasNode(r.source) && g.hasNode(r.target) && r.source !== r.target) {
+      g.setEdge(r.source, r.target);
+    }
+  }
+
+  dagre.layout(g);
+
+  return {
+    ...diagram,
+    tables: diagram.tables.map((t) => {
+      const laid = g.node(t.id);
+      if (!laid) return t;
+      return {
+        ...t,
+        position: {
+          x: Math.round(laid.x - laid.width / 2),
+          y: Math.round(laid.y - laid.height / 2),
+        },
+      };
     }),
   };
 }

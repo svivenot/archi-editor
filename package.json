@@ -2,7 +2,7 @@
   "name": "archi-editor",
   "displayName": "Archi Editor - WYSIWYG Architecture Documentation",
   "description": "WYSIWYG editor for architecture documentation combining Markdown, connected box diagrams (AWS, Azure, SQL Server, Oracle, PostgreSQL, RabbitMQ, Traefik, Keycloak) and sequence diagrams in YAML, with PDF export.",
-  "version": "0.1.0",
+  "version": "0.4.3",
   "publisher": "sylvain",
   "license": "MIT",
   "repository": {
@@ -83,7 +83,7 @@
     "build": "npm run build:extension && npm run build:mcp && npm run build:webview",
     "package:vsix": "npm run build && node scripts/package-vsix.mjs",
     "build:extension": "esbuild src/extension.ts --bundle --outfile=dist/extension.js --external:vscode --format=cjs --platform=node --sourcemap",
-    "build:mcp": "esbuild src/mcp/server.ts --bundle --outfile=dist/mcp-server.js --format=cjs --platform=node --target=node18 --banner:js=\"#!/usr/bin/env node\"",
+    "build:mcp": "esbuild src/mcp/server.ts --bundle --outfile=dist/mcp-server.js --format=cjs --platform=node --target=node18 --external:@resvg/resvg-js --banner:js=\"#!/usr/bin/env node\"",
     "build:webview": "vite build",
     "dev:webview": "vite",
     "typecheck": "tsc --noEmit && tsc -p tsconfig.webview.json --noEmit",
@@ -92,6 +92,7 @@
   "dependencies": {
     "@dagrejs/dagre": "^1.1.4",
     "@modelcontextprotocol/sdk": "^1.32.1",
+    "@resvg/resvg-js": "^2.6.2",
     "@tiptap/extension-placeholder": "^2.10.3",
     "@tiptap/extension-table": "^2.10.3",
     "@tiptap/extension-table-cell": "^2.10.3",

@@ -10,6 +10,7 @@ import {
 } from '@shared/archTypes';
 import { parseSeqYaml, serializeSeqYaml } from '@shared/documentParser';
 import { ArchSymbol } from '../../symbols/ArchSymbolRegistry';
+import { useFullscreen, FullscreenButton } from '../fullscreen';
 import {
   Plus,
   Code2,
@@ -37,6 +38,7 @@ export const ArchSeqEditor: React.FC<ArchSeqEditorProps> = ({
   onChange,
   onDeleteBlock,
 }) => {
+  const [fullscreen, setFullscreen] = useFullscreen();
   const [selectedParticipantId, setSelectedParticipantId] = useState<
     string | null
   >(null);
@@ -242,7 +244,7 @@ export const ArchSeqEditor: React.FC<ArchSeqEditorProps> = ({
   let msgStepCounter = 0;
 
   return (
-    <div className="arch-diagram-card">
+    <div className={`arch-diagram-card${fullscreen ? ' fullscreen' : ''}`}>
       {/* Barre d'en-tête */}
       <div className="arch-diagram-header">
         <div className="arch-diagram-header-left">
@@ -301,6 +303,10 @@ export const ArchSeqEditor: React.FC<ArchSeqEditorProps> = ({
             <Code2 size={14} />
             <span>YAML</span>
           </button>
+          <FullscreenButton
+            fullscreen={fullscreen}
+            onToggle={() => setFullscreen((v) => !v)}
+          />
           <button
             type="button"
             className="arch-btn-icon danger"

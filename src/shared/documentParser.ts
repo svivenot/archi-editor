@@ -1,11 +1,15 @@
 import YAML from 'yaml';
 import {
   ArchBoxDiagram,
+  ArchDbColumn,
+  ArchDbDiagram,
   ArchDocumentBlock,
   ArchSeqDiagram,
 } from './archTypes';
 
-const FENCED_BLOCK_REGEX = /^```(arch-box|arch-seq)[ \t]*\r?\n([\s\S]*?)^```[ \t]*$/gm;
+const FENCED_BLOCK_REGEX = /^```(arch-box|arch-seq|arch-db)[ \t]*\r?\n([\s\S]*?)^```[ \t]*$/gm;
+
+const HANDLE_SIDES = ['left', 'right', 'top', 'bottom'];
 
 export function createDefaultBoxDiagram(title = 'Nouveau Diagramme de Composants'): ArchBoxDiagram {
   return {
@@ -137,6 +141,75 @@ export function createDefaultSeqDiagram(title = 'Nouveau Diagramme de Séquence'
   };
 }
 
+export function createDefaultDbDiagram(title = 'Nouveau Schéma de Base de Données'): ArchDbDiagram {
+  return {
+    title,
+    tables: [
+      {
+        id: 'tbl-customer',
+        name: 'customer',
+        schema: 'public',
+        position: { x: 80, y: 80 },
+        color: '#2563EB',
+        columns: [
+          { name: 'id', type: 'UUID', pk: true },
+          { name: 'email', type: 'VARCHAR(255)', unique: true },
+          { name: 'full_name', type: 'VARCHAR(255)' },
+          { name: 'created_at', type: 'TIMESTAMP' },
+        ],
+      },
+      {
+        id: 'tbl-order',
+        name: 'order',
+        schema: 'public',
+        position: { x: 460, y: 80 },
+        color: '#7C3AED',
+        columns: [
+          { name: 'id', type: 'UUID', pk: true },
+          { name: 'customer_id', type: 'UUID', fk: true },
+          { name: 'status', type: 'VARCHAR(32)' },
+          { name: 'total_amount', type: 'NUMERIC(12,2)' },
+          { name: 'created_at', type: 'TIMESTAMP' },
+        ],
+      },
+      {
+        id: 'tbl-order-line',
+        name: 'order_line',
+        schema: 'public',
+        position: { x: 840, y: 80 },
+        color: '#059669',
+        columns: [
+          { name: 'id', type: 'UUID', pk: true },
+          { name: 'order_id', type: 'UUID', fk: true },
+          { name: 'product_sku', type: 'VARCHAR(64)' },
+          { name: 'quantity', type: 'INT' },
+          { name: 'unit_price', type: 'NUMERIC(12,2)' },
+        ],
+      },
+    ],
+    relations: [
+      {
+        id: 'rel-1',
+        source: 'tbl-order',
+        target: 'tbl-customer',
+        sourceColumn: 'customer_id',
+        targetColumn: 'id',
+        cardinality: 'many-to-one',
+        label: 'passe',
+      },
+      {
+        id: 'rel-2',
+        source: 'tbl-order-line',
+        target: 'tbl-order',
+        sourceColumn: 'order_id',
+        targetColumn: 'id',
+        cardinality: 'many-to-one',
+        label: 'compose',
+      },
+    ],
+  };
+}
+
 export function parseBoxYaml(yamlText: string): { diagram: ArchBoxDiagram; error?: string } {
   try {
     const parsed = YAML.parse(yamlText) || {};
@@ -169,6 +242,8 @@ export function parseBoxYaml(yamlText: string): { diagram: ArchBoxDiagram; error
             style: e.style === 'dashed' || e.style === 'dotted' ? e.style : 'solid',
             bidirectional: Boolean(e.bidirectional),
             animated: Boolean(e.animated),
+            sourceHandle: HANDLE_SIDES.includes(e.sourceHandle) ? e.sourceHandle : undefined,
+            targetHandle: HANDLE_SIDES.includes(e.targetHandle) ? e.targetHandle : undefined,
           }))
         : [],
     };
@@ -219,6 +294,8 @@ export function serializeBoxYaml(diagram: ArchBoxDiagram): string {
     if (e.style && e.style !== 'solid') item.style = e.style;
     if (e.bidirectional) item.bidirectional = true;
     if (e.animated) item.animated = true;
+    if (e.sourceHandle) item.sourceHandle = e.sourceHandle;
+    if (e.targetHandle) item.targetHandle = e.targetHandle;
     return item;
   });
   return YAML.stringify(clean, { indent: 2 }).trim();
@@ -315,6 +392,90 @@ export function serializeSeqYaml(diagram: ArchSeqDiagram): string {
   return YAML.stringify(clean, { indent: 2 }).trim();
 }
 
+const CARDINALITIES = ['one-to-one', 'one-to-many', 'many-to-one', 'many-to-many'];
+
+export function parseDbYaml(yamlText: string): { diagram: ArchDbDiagram; error?: string } {
+  try {
+    const parsed = YAML.parse(yamlText) || {};
+    const diagram: ArchDbDiagram = {
+      title: typeof parsed.title === 'string' ? parsed.title : 'Schéma de Base de Données',
+      description: typeof parsed.description === 'string' ? parsed.description : undefined,
+      tables: Array.isArray(parsed.tables)
+        ? parsed.tables.map((t: any, idx: number) => ({
+            id: String(t.id || `table-${idx + 1}`),
+            name: String(t.name || t.id || `table_${idx + 1}`),
+            schema: t.schema ? String(t.schema) : undefined,
+            color: t.color ? String(t.color) : undefined,
+            position: {
+              x: typeof t.position?.x === 'number' ? t.position.x : 80 + (idx % 3) * 380,
+              y: typeof t.position?.y === 'number' ? t.position.y : 80 + Math.floor(idx / 3) * 320,
+            },
+            columns: Array.isArray(t.columns)
+              ? t.columns.map((c: any, cIdx: number): ArchDbColumn => ({
+                  name: String(c?.name || c || `col_${cIdx + 1}`),
+                  type: c?.type !== undefined ? String(c.type) : undefined,
+                  pk: Boolean(c?.pk),
+                  fk: Boolean(c?.fk),
+                  nullable: Boolean(c?.nullable),
+                  unique: Boolean(c?.unique),
+                  note: c?.note !== undefined ? String(c.note) : undefined,
+                }))
+              : [],
+          }))
+        : [],
+      relations: Array.isArray(parsed.relations)
+        ? parsed.relations.map((r: any, idx: number) => ({
+            id: String(r.id || `rel-${idx + 1}`),
+            source: String(r.source || ''),
+            target: String(r.target || ''),
+            sourceColumn: r.sourceColumn ? String(r.sourceColumn) : undefined,
+            targetColumn: r.targetColumn ? String(r.targetColumn) : undefined,
+            cardinality: CARDINALITIES.includes(r.cardinality) ? r.cardinality : 'one-to-many',
+            label: r.label !== undefined ? String(r.label) : undefined,
+          }))
+        : [],
+    };
+    return { diagram };
+  } catch (err: any) {
+    return {
+      diagram: { title: 'Erreur YAML', tables: [], relations: [] },
+      error: err?.message || 'YAML invalide',
+    };
+  }
+}
+
+export function serializeDbYaml(diagram: ArchDbDiagram): string {
+  const clean: Record<string, any> = {};
+  if (diagram.title) clean.title = diagram.title;
+  if (diagram.description) clean.description = diagram.description;
+  clean.tables = diagram.tables.map((t) => {
+    const item: Record<string, any> = { id: t.id, name: t.name };
+    if (t.schema) item.schema = t.schema;
+    if (t.color) item.color = t.color;
+    item.position = { x: Math.round(t.position.x), y: Math.round(t.position.y) };
+    item.columns = t.columns.map((c) => {
+      const col: Record<string, any> = { name: c.name };
+      if (c.type) col.type = c.type;
+      if (c.pk) col.pk = true;
+      if (c.fk) col.fk = true;
+      if (c.nullable) col.nullable = true;
+      if (c.unique) col.unique = true;
+      if (c.note) col.note = c.note;
+      return col;
+    });
+    return item;
+  });
+  clean.relations = diagram.relations.map((r) => {
+    const item: Record<string, any> = { id: r.id, source: r.source, target: r.target };
+    if (r.sourceColumn) item.sourceColumn = r.sourceColumn;
+    if (r.targetColumn) item.targetColumn = r.targetColumn;
+    if (r.cardinality && r.cardinality !== 'one-to-many') item.cardinality = r.cardinality;
+    if (r.label) item.label = r.label;
+    return item;
+  });
+  return YAML.stringify(clean, { indent: 2 }).trim();
+}
+
 /**
  * Découpe un document .arch.md en une liste ordonnée de blocs (Markdown et Diagrammes YAML).
  */
@@ -336,7 +497,7 @@ export function parseArchDocument(text: string): ArchDocumentBlock[] {
       });
     }
 
-    const fenceType = match[1] as 'arch-box' | 'arch-seq';
+    const fenceType = match[1] as 'arch-box' | 'arch-seq' | 'arch-db';
     const rawYaml = match[2].trim();
 
     if (fenceType === 'arch-box') {
@@ -346,6 +507,15 @@ export function parseArchDocument(text: string): ArchDocumentBlock[] {
         type: 'arch-box',
         content: rawYaml,
         boxDiagram: diagram,
+        parseError: error,
+      });
+    } else if (fenceType === 'arch-db') {
+      const { diagram, error } = parseDbYaml(rawYaml);
+      blocks.push({
+        id: `block-db-${blockCounter++}`,
+        type: 'arch-db',
+        content: rawYaml,
+        dbDiagram: diagram,
         parseError: error,
       });
     } else {
@@ -396,6 +566,11 @@ export function serializeArchDocument(blocks: ArchDocumentBlock[]): string {
         ? serializeSeqYaml(block.seqDiagram)
         : block.content.trim();
       parts.push(`\`\`\`arch-seq\n${yamlStr}\n\`\`\``);
+    } else if (block.type === 'arch-db') {
+      const yamlStr = block.dbDiagram
+        ? serializeDbYaml(block.dbDiagram)
+        : block.content.trim();
+      parts.push(`\`\`\`arch-db\n${yamlStr}\n\`\`\``);
     }
   }
 

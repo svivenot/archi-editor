@@ -4,6 +4,7 @@ Extension VS Code permettant d'éditer en **WYSIWYG** des documents d'architectu
 - **Texte riche en Markdown** (éditeur TipTap WYSIWYG avec synchronisation bidirectionnelle Markdown).
 - **Diagrammes de boîtes connectées (`arch-box`)** décrits en YAML et éditables sur un canevas interactif (`@xyflow/react` + auto-layout `Dagre`).
 - **Diagrammes de séquence (`arch-seq`)** décrits en YAML et éditables visuellement (participants typés avec symboles, messages synchrones/asynchrones/retours, blocs `alt`/`opt`/`loop`/`par`, notes).
+- **Schémas de base de données (`arch-db`)** décrits en YAML et éditables sur un canevas interactif : tables avec colonnes typées, clés primaires/étrangères, contraintes `unique`/`nullable`, relations avec cardinalité (1—1, 1—N, N—1, N—N) et auto-layout `Dagre`.
 - **Bibliothèque de composants intégrée et extensible (`arch-components.yaml`)** incluant :
   - **Bases de données** : MS SQL Server (`mssql`), Oracle Database (`oracle`), PostgreSQL (`postgresql`).
   - **Messaging, Proxy & IAM** : RabbitMQ (`rabbitmq`), Traefik Proxy (`traefik`), Keycloak (`keycloak`).
@@ -39,8 +40,23 @@ les références, calcule la mise en page (Dagre, conteneurs imbriqués via `par
 | `arch_create_document` | Crée un document complet (Markdown + diagrammes) |
 | `arch_read_document` | Liste les blocs numérotés d'un document |
 | `arch_insert_block` / `arch_update_block` / `arch_remove_block` | Édition par bloc |
-| `arch_layout_diagram` | Recalcule la mise en page d'un `arch-box` (LR ou TB) |
+| `arch_layout_diagram` | Recalcule la mise en page d'un `arch-box` ou `arch-db` (LR ou TB) |
 | `arch_validate_document` | YAML, `componentRef`, liens, participants |
+| `arch_export_confluence` | Prépare la publication Confluence : Markdown → format *storage* (XHTML) + schémas rendus en PNG |
+
+### Exporter vers Confluence
+
+L'outil `arch_export_confluence` rend chaque diagramme (`arch-box`, `arch-seq`, `arch-db`) en **PNG**
+côté serveur (rendu SVG → PNG, sans navigateur) et convertit le Markdown au format *storage* Confluence.
+Il écrit les PNG et le corps de page dans un dossier `<nom>.confluence/` et retourne le corps avec les
+macros `<ac:image>`. La publication se fait ensuite avec un serveur MCP Atlassian :
+
+1. `arch_export_confluence` → corps *storage* + PNG sur disque ;
+2. `createConfluencePage` (ou `updateConfluencePage` si la page existe) avec ce corps ;
+3. attacher les PNG retournés à la page (les macros image les référencent par nom de fichier).
+
+Exemple de demande à Claude Code : « Exporte `docs/architecture.arch.md` vers Confluence dans l'espace
+DEV, les schémas en PNG. »
 
 ### Installation du serveur MCP et de l'agent
 
