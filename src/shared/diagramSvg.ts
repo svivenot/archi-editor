@@ -106,37 +106,61 @@ interface EdgeGeom {
   startAngle: number;
 }
 
+type Side = 'left' | 'right' | 'top' | 'bottom';
+
 // Décalage des points de contrôle (identique à React Flow getBezierPath)
 function controlOffset(distance: number, curvature: number): number {
   return distance >= 0 ? 0.5 * distance : curvature * 25 * Math.sqrt(-distance);
 }
 
-// Courbe de Bézier reliant le bord droit de la source au bord gauche de la cible,
-// reproduisant exactement l'arête par défaut de React Flow (handles s-right -> t-left).
-function bezierRightToLeft(s: Rect, t: Rect, curvature = 0.25): EdgeGeom {
-  const sx = s.x + s.w;
-  const sy = s.y + s.h / 2;
-  const tx = t.x;
-  const ty = t.y + t.h / 2;
-  const dist = tx - sx;
-  const off = controlOffset(dist, curvature);
-  const scx = sx + off;
-  const scy = sy;
-  const tcx = tx - off;
-  const tcy = ty;
-  const d = `M ${sx.toFixed(1)} ${sy.toFixed(1)} C ${scx.toFixed(1)} ${scy.toFixed(1)}, ${tcx.toFixed(
+// Point d'ancrage du handle sur un côté de la boîte
+function anchor(r: Rect, side: Side): { x: number; y: number } {
+  switch (side) {
+    case 'left':
+      return { x: r.x, y: r.y + r.h / 2 };
+    case 'right':
+      return { x: r.x + r.w, y: r.y + r.h / 2 };
+    case 'top':
+      return { x: r.x + r.w / 2, y: r.y };
+    case 'bottom':
+      return { x: r.x + r.w / 2, y: r.y + r.h };
+  }
+}
+
+// Point de contrôle de Bézier selon le côté du handle (cf. React Flow getBezierPath)
+function control(side: Side, x1: number, y1: number, x2: number, y2: number, c: number): [number, number] {
+  switch (side) {
+    case 'left':
+      return [x1 - controlOffset(x1 - x2, c), y1];
+    case 'right':
+      return [x1 + controlOffset(x2 - x1, c), y1];
+    case 'top':
+      return [x1, y1 - controlOffset(y1 - y2, c)];
+    case 'bottom':
+      return [x1, y1 + controlOffset(y2 - y1, c)];
+  }
+}
+
+// Courbe de Bézier reliant le handle source au handle cible, en respectant les côtés
+// choisis (left/right/top/bottom) — reproduit exactement l'arête par défaut de React Flow.
+function bezierPath(s: Rect, sSide: Side, t: Rect, tSide: Side, curvature = 0.25): EdgeGeom {
+  const sp = anchor(s, sSide);
+  const tp = anchor(t, tSide);
+  const [scx, scy] = control(sSide, sp.x, sp.y, tp.x, tp.y, curvature);
+  const [tcx, tcy] = control(tSide, tp.x, tp.y, sp.x, sp.y, curvature);
+  const d = `M ${sp.x.toFixed(1)} ${sp.y.toFixed(1)} C ${scx.toFixed(1)} ${scy.toFixed(1)}, ${tcx.toFixed(
     1
-  )} ${tcy.toFixed(1)}, ${tx.toFixed(1)} ${ty.toFixed(1)}`;
+  )} ${tcy.toFixed(1)}, ${tp.x.toFixed(1)} ${tp.y.toFixed(1)}`;
   return {
     d,
-    sx,
-    sy,
-    tx,
-    ty,
-    labelX: (sx + 3 * scx + 3 * tcx + tx) / 8,
-    labelY: (sy + 3 * scy + 3 * tcy + ty) / 8,
-    endAngle: Math.atan2(ty - tcy, tx - tcx),
-    startAngle: Math.atan2(sy - scy, sx - scx),
+    sx: sp.x,
+    sy: sp.y,
+    tx: tp.x,
+    ty: tp.y,
+    labelX: (sp.x + 3 * scx + 3 * tcx + tp.x) / 8,
+    labelY: (sp.y + 3 * scy + 3 * tcy + tp.y) / 8,
+    endAngle: Math.atan2(tp.y - tcy, tp.x - tcx),
+    startAngle: Math.atan2(sp.y - scy, sp.x - scx),
   };
 }
 
@@ -258,7 +282,10 @@ export function boxDiagramToSvg(diagram: ArchBoxDiagram, resolve: CompResolver):
     if (!sr || !tr) continue;
     const s = shift(sr);
     const t = shift(tr);
-    const b = e.source === e.target ? selfLoop(s) : bezierRightToLeft(s, t);
+    const b =
+      e.source === e.target
+        ? selfLoop(s)
+        : bezierPath(s, e.sourceHandle || 'right', t, e.targetHandle || 'left');
     const dash = e.style === 'dashed' ? ' stroke-dasharray="6 4"' : e.style === 'dotted' ? ' stroke-dasharray="2 4"' : '';
     edges.push(
       `<path d="${b.d}" fill="none" stroke="#475569" stroke-width="1.8"${dash}/>` +
@@ -380,7 +407,7 @@ export function dbDiagramToSvg(diagram: ArchDbDiagram): SvgResult {
     if (!sr || !tr) continue;
     const s = shift(sr);
     const t = shift(tr);
-    const b = rel.source === rel.target ? selfLoop(s) : bezierRightToLeft(s, t);
+    const b = rel.source === rel.target ? selfLoop(s) : bezierPath(s, 'right', t, 'left');
     rels.push(
       `<path d="${b.d}" fill="none" stroke="#64748B" stroke-width="1.8"/>` +
         arrowHead(b.tx, b.ty, b.endAngle, '#64748B')
