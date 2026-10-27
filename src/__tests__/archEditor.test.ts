@@ -126,6 +126,62 @@ items:
     expect(reparsed[1].boxDiagram?.edges[0].protocol).toBe('HTTPS');
     expect(reparsed[3].seqDiagram?.items[0].label).toBe('Validate Token');
   });
+
+  it('découpe et réassemble fidèlement un schéma arch-db', () => {
+    const sample = `# Modèle de données
+
+\`\`\`arch-db
+title: Commandes
+tables:
+  - id: customer
+    name: customer
+    schema: public
+    position:
+      x: 80
+      y: 80
+    columns:
+      - name: id
+        type: UUID
+        pk: true
+      - name: email
+        type: VARCHAR(255)
+        unique: true
+  - id: order
+    name: order
+    position:
+      x: 460
+      y: 80
+    columns:
+      - name: id
+        type: UUID
+        pk: true
+      - name: customer_id
+        type: UUID
+        fk: true
+relations:
+  - id: rel-1
+    source: order
+    target: customer
+    sourceColumn: customer_id
+    targetColumn: id
+    cardinality: many-to-one
+    label: passe
+\`\`\`
+`;
+
+    const blocks = parseArchDocument(sample);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[1].type).toBe('arch-db');
+    const db = blocks[1].dbDiagram!;
+    expect(db.tables).toHaveLength(2);
+    expect(db.tables[0].columns[0].pk).toBe(true);
+    expect(db.tables[1].columns[1].fk).toBe(true);
+    expect(db.relations[0].cardinality).toBe('many-to-one');
+
+    const reparsed = parseArchDocument(serializeArchDocument(blocks));
+    expect(reparsed[1].dbDiagram?.relations[0].sourceColumn).toBe('customer_id');
+    expect(reparsed[1].dbDiagram?.tables[0].columns[1].unique).toBe(true);
+  });
 });
 
 describe('Archi Editor - Export PDF', () => {

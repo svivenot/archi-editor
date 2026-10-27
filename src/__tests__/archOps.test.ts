@@ -6,8 +6,10 @@ import { DEFAULT_COMPONENT_LIBRARY } from '../shared/defaultLibrary';
 import { ArchBoxDiagram } from '../shared/archTypes';
 import {
   autoLayoutBoxDiagram,
+  autoLayoutDbDiagram,
   validateArchDocument,
   validateBoxDiagram,
+  validateDbDiagram,
   validateSeqDiagram,
 } from '../shared/archOps';
 import { parseArchDocument } from '../shared/documentParser';
@@ -128,6 +130,37 @@ describe('Archi Editor - Validation', () => {
     expect(issues.filter((i) => i.level === 'error')).toHaveLength(2);
   });
 
+  it('détecte références cassées et doublons dans arch-db', () => {
+    const issues = validateDbDiagram({
+      tables: [
+        { id: 't', name: 'a', position: { x: 0, y: 0 }, columns: [{ name: 'id', pk: true }] },
+        { id: 't', name: 'b', position: { x: 0, y: 0 }, columns: [] },
+      ],
+      relations: [
+        { id: 'r', source: 't', target: 'zz', sourceColumn: 'inconnue', targetColumn: 'id' },
+      ],
+    });
+    const msgs = issues.map((i) => i.message).join('\n');
+    expect(msgs).toContain('Identifiant de table dupliqué');
+    expect(msgs).toContain('table cible "zz" introuvable');
+    expect(msgs).toContain('aucune colonne');
+    expect(msgs).toContain('colonne source "inconnue"');
+  });
+
+  it('positionne les tables selon les relations (auto-layout arch-db)', () => {
+    const laid = autoLayoutDbDiagram({
+      tables: [
+        { id: 'a', name: 'a', position: { x: 0, y: 0 }, columns: [{ name: 'id', pk: true }] },
+        { id: 'b', name: 'b', position: { x: 0, y: 0 }, columns: [{ name: 'a_id', fk: true }] },
+      ],
+      relations: [{ id: 'r', source: 'b', target: 'a' }],
+    });
+    const a = laid.tables.find((t) => t.id === 'a')!;
+    const b = laid.tables.find((t) => t.id === 'b')!;
+    // En mode LR, la table source et la table cible ne se superposent pas horizontalement
+    expect(a.position.x).not.toBe(b.position.x);
+  });
+
   it('valide sans erreur le document d’exemple', () => {
     const text = fs.readFileSync(path.join(__dirname, '../../examples/architecture-demo.arch.md'), 'utf-8');
     expect(validateArchDocument(text, lib).filter((i) => i.level === 'error')).toEqual([]);
@@ -170,16 +203,64 @@ describe('Archi Editor - Opérations de document (MCP)', () => {
         },
         library
       ),
+      buildBlock(
+        {
+          type: 'arch-db',
+          diagram: {
+            tables: [
+              { id: 'customer', name: 'customer', columns: [{ name: 'id', type: 'UUID', pk: true }] },
+              { id: 'order', name: 'order', columns: [{ name: 'customer_id', type: 'UUID', fk: true }] },
+            ],
+            relations: [
+              { source: 'order', target: 'customer', sourceColumn: 'customer_id', targetColumn: 'id' },
+            ],
+          },
+        },
+        library
+      ),
     ];
     const result = writeBlocks(file, blocks, library);
     expect(result.issues).toEqual([]);
 
     const reread = readBlocks(file);
-    expect(reread.map((b) => b.type)).toEqual(['markdown', 'arch-box', 'arch-seq']);
+    expect(reread.map((b) => b.type)).toEqual(['markdown', 'arch-box', 'arch-seq', 'arch-db']);
     const box = reread[1].boxDiagram!;
     expect(box.nodes[0].props).toEqual({ port: '8080' });
     expect(box.nodes[0].position.x).not.toBe(box.nodes[1].position.x);
     expect(box.edges[0].id).toBe('edge-1');
-    expect(parseArchDocument(fs.readFileSync(file, 'utf-8'))).toHaveLength(3);
+    const db = reread[3].dbDiagram!;
+    expect(db.tables).toHaveLength(2);
+    // Mise en page automatique appliquée (positions calculées, tables disjointes)
+    expect(db.tables[0].position.x).not.toBe(db.tables[1].position.x);
+    expect(db.relations[0].id).toBe('rel-1');
+    expect(parseArchDocument(fs.readFileSync(file, 'utf-8'))).toHaveLength(4);
+  });
+
+  it('round-trip des côtés d’accroche (sourceHandle / targetHandle) des liens arch-box', () => {
+    const block = buildBlock(
+      {
+        type: 'arch-box',
+        diagram: {
+          nodes: [
+            { id: 'a', componentRef: 'microservice', label: 'A', position: { x: 0, y: 0 } },
+            { id: 'b', componentRef: 'postgresql', label: 'B', position: { x: 0, y: 200 } },
+          ],
+          edges: [
+            { source: 'a', target: 'b', sourceHandle: 'bottom', targetHandle: 'top' },
+            { source: 'b', target: 'a' },
+          ],
+        },
+        layout: 'keep',
+      },
+      lib
+    );
+    // Sérialisé puis reparsé via le pipeline document complet
+    const parsedBlocks = parseArchDocument('```arch-box\n' + block.content + '\n```\n');
+    const reparsed = parsedBlocks.find((b) => b.type === 'arch-box')!.boxDiagram!;
+    expect(reparsed.edges[0].sourceHandle).toBe('bottom');
+    expect(reparsed.edges[0].targetHandle).toBe('top');
+    // Un lien sans côté reste sans côté (défaut droite → gauche)
+    expect(reparsed.edges[1].sourceHandle).toBeUndefined();
+    expect(reparsed.edges[1].targetHandle).toBeUndefined();
   });
 });

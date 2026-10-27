@@ -148,6 +148,217 @@ body {
   padding: 16px 24px !important;
 }
 
+/* ============================================================================
+   Barre de navigation des pages
+   ============================================================================ */
+.arch-pagebar {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: var(--arch-surface);
+  border-bottom: 1px solid var(--arch-border);
+}
+
+.arch-pagebar-tabs {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex: 1;
+  overflow-x: auto;
+}
+
+.arch-page-tab {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 6px 10px;
+  max-width: 220px;
+  border: 1px solid var(--arch-border-subtle);
+  border-radius: 8px 8px 0 0;
+  background: #f8fafc;
+  color: var(--arch-text-muted);
+  font-size: 13px;
+  cursor: pointer;
+  user-select: none;
+  white-space: nowrap;
+}
+
+.arch-page-tab:hover {
+  background: #eff6ff;
+  color: var(--arch-text);
+}
+
+.arch-page-tab.active {
+  background: var(--arch-surface);
+  color: var(--arch-text);
+  border-color: var(--arch-primary);
+  border-bottom-color: var(--arch-primary);
+  box-shadow: inset 0 -2px 0 0 var(--arch-primary);
+  font-weight: 600;
+}
+
+.arch-page-tab.dragging {
+  opacity: 0.5;
+}
+
+.arch-page-tab-index {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 18px;
+  height: 18px;
+  padding: 0 4px;
+  border-radius: 9px;
+  background: var(--arch-border-subtle);
+  color: var(--arch-text-muted);
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.arch-page-tab.active .arch-page-tab-index {
+  background: var(--arch-primary);
+  color: #ffffff;
+}
+
+.arch-page-tab-label {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  max-width: 160px;
+}
+
+.arch-page-tab-close {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 2px;
+  border: none;
+  border-radius: 4px;
+  background: transparent;
+  color: var(--arch-text-muted);
+  cursor: pointer;
+}
+
+.arch-page-tab-close:hover {
+  background: #fee2e2;
+  color: var(--arch-danger);
+}
+
+.arch-page-tab-input {
+  width: 160px;
+  padding: 2px 4px;
+  border: 1px solid var(--arch-primary);
+  border-radius: 4px;
+  font: inherit;
+  color: var(--arch-text);
+}
+
+.arch-page-add {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 6px 10px;
+  border: 1px dashed var(--arch-border);
+  border-radius: 8px;
+  background: transparent;
+  color: var(--arch-primary);
+  font-size: 13px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.arch-page-add:hover {
+  background: #eff6ff;
+  border-color: var(--arch-primary);
+}
+
+/* Séparation visuelle des pages lors de l'export PDF / impression */
+.arch-print-page {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.arch-print-page.arch-page-break {
+  break-before: page;
+  page-break-before: always;
+  margin-top: 32px;
+  padding-top: 32px;
+  border-top: 2px dashed var(--arch-border);
+}
+
+/* ============================================================================
+   Sélecteur Édition / Visualisation (dans la barre d'outils sombre)
+   ============================================================================ */
+.arch-mode-toggle {
+  display: inline-flex;
+  gap: 2px;
+  padding: 2px;
+  background: #1e293b;
+  border: 1px solid #334155;
+  border-radius: 8px;
+}
+
+.arch-mode-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 5px;
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #cbd5e1;
+  background: transparent;
+  border: none;
+  border-radius: 6px;
+  cursor: pointer;
+}
+
+.arch-mode-btn:hover {
+  color: #ffffff;
+}
+
+.arch-mode-btn.active {
+  background: #2563eb;
+  color: #ffffff;
+}
+
+/* ============================================================================
+   Mode visualisation (lecture seule, schémas intégrés en SVG)
+   ============================================================================ */
+.arch-view-stack {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+
+.arch-view-figure {
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 8px;
+}
+
+.arch-view-svg {
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.arch-view-svg svg {
+  max-width: 100%;
+  height: auto;
+  display: block;
+  border: 1px solid var(--arch-border-subtle);
+  border-radius: 8px;
+}
+
+.arch-view-caption {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--arch-text-muted);
+}
+
 .arch-bottom-insert-bar {
   display: flex;
   align-items: center;
@@ -199,6 +410,12 @@ body {
   border-color: #c4b5fd;
   background: #f5f3ff;
   color: #5b21b6;
+}
+
+.arch-insert-card-btn.db {
+  border-color: #6ee7b7;
+  background: #ecfdf5;
+  color: #065f46;
 }
 
 /* ============================================================================
@@ -370,6 +587,41 @@ body {
   box-shadow: 0 2px 8px rgba(15, 23, 42, 0.04);
 }
 
+/* Mode plein écran d'édition d'un schéma */
+.arch-diagram-card.fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  border: none;
+  border-radius: 0;
+  box-shadow: none;
+  display: flex;
+  flex-direction: column;
+}
+
+.arch-diagram-card.fullscreen .arch-diagram-header,
+.arch-diagram-card.fullscreen .arch-quick-connect-bar {
+  flex-shrink: 0;
+}
+
+/* Les espaces de travail (fixes en vue normale) remplissent l'écran en plein écran */
+.arch-diagram-card.fullscreen .arch-box-workspace,
+.arch-diagram-card.fullscreen .arch-seq-workspace {
+  flex: 1;
+  height: auto;
+  min-height: 0;
+}
+
+.arch-diagram-card.fullscreen .arch-yaml-editor-pane {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+}
+
+.arch-diagram-card.fullscreen .arch-yaml-editor-pane .arch-yaml-textarea {
+  flex: 1;
+}
+
 .arch-diagram-header {
   display: flex;
   align-items: center;
@@ -406,6 +658,11 @@ body {
 .arch-diagram-type-badge.seq {
   background: #ede9fe;
   color: #5b21b6;
+}
+
+.arch-diagram-type-badge.db {
+  background: #d1fae5;
+  color: #065f46;
 }
 
 .arch-diagram-title-input {
@@ -659,6 +916,20 @@ body {
   background: #ffffff;
 }
 
+/* Ancres de reconnexion : visibles uniquement sur le lien sélectionné */
+.react-flow__edgeupdater {
+  cursor: grab;
+}
+
+.react-flow__edge.selected .react-flow__edgeupdater {
+  r: 8;
+  fill: #ffffff;
+  fill-opacity: 1;
+  stroke: var(--arch-primary);
+  stroke-width: 2;
+  pointer-events: all;
+}
+
 .arch-rf-node {
   min-width: 195px;
   max-width: 250px;
@@ -902,6 +1173,13 @@ body {
   gap: 8px;
 }
 
+.arch-field-col {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  min-width: 0;
+}
+
 .arch-inspector-section-title {
   font-size: 11px;
   font-weight: 800;
@@ -1051,4 +1329,165 @@ body {
 .arch-catalog-id {
   font-size: 10.5px;
   color: #64748b;
+}
+
+/* ============================================================================
+   Schéma de Base de Données (arch-db) — Nœuds Table (ERD)
+   ============================================================================ */
+.arch-db-node {
+  min-width: 200px;
+  max-width: 300px;
+  background: #ffffff;
+  border: 1.6px solid #93c5fd;
+  border-radius: 9px;
+  overflow: hidden;
+  box-shadow: 0 2px 6px -2px rgba(0, 0, 0, 0.12);
+  font-size: 12px;
+}
+
+.arch-db-node.selected {
+  border-width: 2px;
+}
+
+.arch-db-node-header {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  padding: 8px 12px;
+  color: #ffffff;
+  font-weight: 700;
+}
+
+.arch-db-node-title {
+  font-size: 13px;
+  letter-spacing: 0.01em;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.arch-db-node-cols {
+  display: flex;
+  flex-direction: column;
+}
+
+.arch-db-col {
+  display: grid;
+  grid-template-columns: 18px 1fr auto;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 12px;
+  border-top: 1px solid #f1f5f9;
+  line-height: 1.5;
+}
+
+.arch-db-col.is-pk {
+  background: #fffbeb;
+}
+
+.arch-db-col.is-linked {
+  background: #eff6ff;
+}
+
+.arch-db-col-key {
+  display: inline-flex;
+  justify-content: center;
+}
+
+.arch-db-col-key-spacer {
+  display: inline-block;
+  width: 12px;
+}
+
+.arch-db-icon-pk {
+  color: #ca8a04;
+}
+
+.arch-db-icon-fk {
+  color: #2563eb;
+}
+
+.arch-db-col-name {
+  font-weight: 600;
+  color: #0f172a;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.arch-db-col.is-pk .arch-db-col-name {
+  text-decoration: underline;
+  text-decoration-color: #ca8a04;
+}
+
+.arch-db-col-flag {
+  font-size: 8px;
+  font-weight: 800;
+  color: #0ea5e9;
+  margin-left: 2px;
+}
+
+.arch-db-col-flag.muted {
+  color: #94a3b8;
+}
+
+.arch-db-col-type {
+  font-size: 10.5px;
+  color: #64748b;
+  font-family: 'JetBrains Mono', 'SFMono-Regular', Consolas, monospace;
+  white-space: nowrap;
+}
+
+.arch-db-col-empty {
+  display: block;
+  color: #94a3b8;
+  font-style: italic;
+  padding: 6px 12px;
+}
+
+/* Éditeur de colonnes dans l'inspecteur */
+.arch-db-cols-editor {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-bottom: 8px;
+}
+
+.arch-db-col-editor {
+  border: 1px solid #e2e8f0;
+  border-radius: 6px;
+  padding: 6px;
+  background: #f8fafc;
+}
+
+.arch-db-col-editor-row {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+}
+
+.arch-db-col-editor-row .arch-field-input {
+  margin: 0;
+}
+
+.arch-db-col-flags {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 6px;
+  font-size: 11px;
+  color: #475569;
+}
+
+.arch-db-col-flags label {
+  display: inline-flex;
+  align-items: center;
+  gap: 3px;
+  cursor: pointer;
+}
+
+.arch-field-color {
+  padding: 2px;
+  height: 32px;
+  cursor: pointer;
 }

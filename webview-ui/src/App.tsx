@@ -1,6 +1,7 @@
 import React, { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ArchBoxDiagram,
+  ArchDbDiagram,
   ArchDocumentBlock,
   ArchSeqDiagram,
   ComponentLibrary,
@@ -9,16 +10,26 @@ import {
 import { DEFAULT_COMPONENT_LIBRARY } from '@shared/defaultLibrary';
 import {
   createDefaultBoxDiagram,
+  createDefaultDbDiagram,
   createDefaultSeqDiagram,
   parseArchDocument,
   serializeArchDocument,
   serializeBoxYaml,
+  serializeDbYaml,
   serializeSeqYaml,
 } from '@shared/documentParser';
+import {
+  ArchPage,
+  derivePageTitle,
+  flattenPagesToBlocks,
+  splitBlocksIntoPages,
+} from '@shared/archPages';
 import { vscodeBridge } from './vscodeApi';
 import { MarkdownBlockEditor } from './editor/MarkdownBlockEditor';
+import { BlockView } from './view/BlockView';
 import { ArchBoxEditor } from './diagrams/box/ArchBoxEditor';
 import { ArchSeqEditor } from './diagrams/sequence/ArchSeqEditor';
+import { ArchDbEditor } from './diagrams/db/ArchDbEditor';
 import { generateAndExportPdf } from './export/pdfGenerator';
 import { ArchSymbol } from './symbols/ArchSymbolRegistry';
 import {
@@ -28,7 +39,11 @@ import {
   GitCommitHorizontal,
   FileText,
   BookOpen,
+  Database,
   X,
+  Plus,
+  Eye,
+  Pencil,
 } from 'lucide-react';
 
 const STANDALONE_DEMO_DOC = `# Dossier d'Architecture : Plateforme Hybride Cloud & Middleware
@@ -149,6 +164,8 @@ edges:
     style: dashed
 \`\`\`
 
+<!-- arch:page title="Séquence d'Authentification" -->
+
 ## 2. Séquence d'Authentification et de Traitement de Commande
 
 Le diagramme de séquence ci-dessous détaille la chronologie des appels lors de la validation d'une commande par un utilisateur :
@@ -245,9 +262,14 @@ export const App: React.FC = () => {
   const [library, setLibrary] = useState<ComponentLibrary>(
     DEFAULT_COMPONENT_LIBRARY
   );
-  const [blocks, setBlocks] = useState<ArchDocumentBlock[]>(() =>
-    parseArchDocument(STANDALONE_DEMO_DOC)
+  const [pages, setPages] = useState<ArchPage[]>(() =>
+    splitBlocksIntoPages(parseArchDocument(STANDALONE_DEMO_DOC))
   );
+  const [viewMode, setViewMode] = useState<'edit' | 'view'>('edit');
+  const [activePageIndex, setActivePageIndex] = useState(0);
+  const [editingPageIndex, setEditingPageIndex] = useState<number | null>(null);
+  const [dragPageIndex, setDragPageIndex] = useState<number | null>(null);
+  const [exportAllPages, setExportAllPages] = useState(false);
   const [showRawDocumentModal, setShowRawDocumentModal] = useState(false);
   const [showCatalogModal, setShowCatalogModal] = useState(false);
   const [isExportingPdf, setIsExportingPdf] = useState(false);
@@ -255,25 +277,48 @@ export const App: React.FC = () => {
   const printableRef = useRef<HTMLDivElement | null>(null);
   const lastSerializedRef = useRef<string>(STANDALONE_DEMO_DOC);
 
-  const syncBlocksToExtension = useCallback(
-    (nextBlocks: ArchDocumentBlock[]) => {
-      setBlocks(nextBlocks);
-      const serialized = serializeArchDocument(nextBlocks);
-      lastSerializedRef.current = serialized;
-      vscodeBridge.postMessage({
-        type: 'updateDocument',
-        documentText: serialized,
-      });
-    },
-    []
-  );
+  const clampIndex = (i: number, len: number) =>
+    Math.max(0, Math.min(i, Math.max(0, len - 1)));
+
+  const activePage = pages[activePageIndex] ?? pages[0];
+  const activeBlocks = activePage ? activePage.blocks : [];
+
+  const syncPagesToExtension = useCallback((nextPages: ArchPage[]) => {
+    const safe =
+      nextPages.length > 0
+        ? nextPages
+        : [{ id: `page-${Date.now()}`, title: 'Page 1', blocks: [] }];
+    setPages(safe);
+    const serialized = serializeArchDocument(flattenPagesToBlocks(safe));
+    lastSerializedRef.current = serialized;
+    vscodeBridge.postMessage({
+      type: 'updateDocument',
+      documentText: serialized,
+    });
+  }, []);
+
+  // Met à jour les blocs de la page active, puis synchronise l'ensemble du document.
+  const setActivePageBlocks = (nextBlocks: ArchDocumentBlock[]) => {
+    const next = pages.map((p, i) =>
+      i === activePageIndex ? { ...p, blocks: nextBlocks } : p
+    );
+    syncPagesToExtension(next);
+  };
 
   const handleExportPdf = useCallback(async () => {
     if (!printableRef.current || isExportingPdf) return;
     setIsExportingPdf(true);
+    setExportAllPages(true);
     try {
-      await generateAndExportPdf(printableRef.current, fileName);
+      // Laisse React rendre toutes les pages dans le conteneur imprimable avant la capture.
+      await new Promise<void>((r) =>
+        requestAnimationFrame(() => requestAnimationFrame(() => r()))
+      );
+      if (printableRef.current) {
+        await generateAndExportPdf(printableRef.current, fileName);
+      }
     } finally {
+      setExportAllPages(false);
       setIsExportingPdf(false);
     }
   }, [fileName, isExportingPdf]);
@@ -288,13 +333,17 @@ export const App: React.FC = () => {
           setFileName(msg.fileName);
           setLibrary(msg.library);
           lastSerializedRef.current = msg.documentText;
-          setBlocks(parseArchDocument(msg.documentText));
+          const initPages = splitBlocksIntoPages(parseArchDocument(msg.documentText));
+          setPages(initPages);
+          setActivePageIndex((prev) => clampIndex(prev, initPages.length));
           break;
         }
         case 'externalDocumentChange': {
           if (msg.documentText !== lastSerializedRef.current) {
             lastSerializedRef.current = msg.documentText;
-            setBlocks(parseArchDocument(msg.documentText));
+            const extPages = splitBlocksIntoPages(parseArchDocument(msg.documentText));
+            setPages(extPages);
+            setActivePageIndex((prev) => clampIndex(prev, extPages.length));
           }
           break;
         }
@@ -315,42 +364,45 @@ export const App: React.FC = () => {
   }, [handleExportPdf]);
 
   const updateMarkdownBlock = (blockId: string, newMd: string) => {
-    const next = blocks.map((b) =>
-      b.id === blockId ? { ...b, content: newMd } : b
+    setActivePageBlocks(
+      activeBlocks.map((b) => (b.id === blockId ? { ...b, content: newMd } : b))
     );
-    syncBlocksToExtension(next);
   };
 
   const updateBoxDiagramBlock = (blockId: string, diagram: ArchBoxDiagram) => {
-    const next = blocks.map((b) =>
-      b.id === blockId
-        ? {
-            ...b,
-            boxDiagram: diagram,
-            content: serializeBoxYaml(diagram),
-          }
-        : b
+    setActivePageBlocks(
+      activeBlocks.map((b) =>
+        b.id === blockId
+          ? { ...b, boxDiagram: diagram, content: serializeBoxYaml(diagram) }
+          : b
+      )
     );
-    syncBlocksToExtension(next);
   };
 
   const updateSeqDiagramBlock = (blockId: string, diagram: ArchSeqDiagram) => {
-    const next = blocks.map((b) =>
-      b.id === blockId
-        ? {
-            ...b,
-            seqDiagram: diagram,
-            content: serializeSeqYaml(diagram),
-          }
-        : b
+    setActivePageBlocks(
+      activeBlocks.map((b) =>
+        b.id === blockId
+          ? { ...b, seqDiagram: diagram, content: serializeSeqYaml(diagram) }
+          : b
+      )
     );
-    syncBlocksToExtension(next);
+  };
+
+  const updateDbDiagramBlock = (blockId: string, diagram: ArchDbDiagram) => {
+    setActivePageBlocks(
+      activeBlocks.map((b) =>
+        b.id === blockId
+          ? { ...b, dbDiagram: diagram, content: serializeDbYaml(diagram) }
+          : b
+      )
+    );
   };
 
   const insertBlockAt = (index: number, newBlock: ArchDocumentBlock) => {
-    const next = [...blocks];
-    next.splice(index, 0, newBlock);
-    syncBlocksToExtension(next);
+    const next = [...activeBlocks];
+    next.splice(Math.max(0, index), 0, newBlock);
+    setActivePageBlocks(next);
   };
 
   const handleInsertBoxAfter = (index: number) => {
@@ -373,8 +425,18 @@ export const App: React.FC = () => {
     });
   };
 
+  const handleInsertDbAfter = (index: number) => {
+    const diag = createDefaultDbDiagram();
+    insertBlockAt(index + 1, {
+      id: `block-db-${Date.now()}`,
+      type: 'arch-db',
+      content: serializeDbYaml(diag),
+      dbDiagram: diag,
+    });
+  };
+
   const handleAddMarkdownAtEnd = () => {
-    insertBlockAt(blocks.length, {
+    insertBlockAt(activeBlocks.length, {
       id: `block-md-${Date.now()}`,
       type: 'markdown',
       content: '## Nouvelle Section\n\nDécrivez votre architecture ici...',
@@ -382,7 +444,7 @@ export const App: React.FC = () => {
   };
 
   const handleDeleteBlock = (blockId: string) => {
-    const filtered = blocks.filter((b) => b.id !== blockId);
+    const filtered = activeBlocks.filter((b) => b.id !== blockId);
     if (filtered.length === 0) {
       filtered.push({
         id: `block-md-${Date.now()}`,
@@ -390,8 +452,116 @@ export const App: React.FC = () => {
         content: '# Titre du Document',
       });
     }
-    syncBlocksToExtension(filtered);
+    setActivePageBlocks(filtered);
   };
+
+  // --- Gestion des pages -----------------------------------------------------
+
+  const handleSelectPage = (i: number) => {
+    setEditingPageIndex(null);
+    setActivePageIndex(clampIndex(i, pages.length));
+  };
+
+  const handleAddPage = () => {
+    const newPage: ArchPage = {
+      id: `page-${Date.now()}`,
+      title: `Page ${pages.length + 1}`,
+      blocks: [
+        {
+          id: `block-md-${Date.now()}`,
+          type: 'markdown',
+          content: '## Nouvelle page\n\nDécrivez cette page ici...',
+        },
+      ],
+    };
+    const next = [...pages, newPage];
+    syncPagesToExtension(next);
+    setActivePageIndex(next.length - 1);
+  };
+
+  const handleRenamePage = (i: number, title: string) => {
+    const clean = title.trim();
+    const next = pages.map((p, idx) =>
+      idx === i ? { ...p, title: clean || derivePageTitle(p, idx) } : p
+    );
+    syncPagesToExtension(next);
+    setEditingPageIndex(null);
+  };
+
+  const handleDeletePage = (i: number) => {
+    if (pages.length <= 1) return;
+    const activeId = pages[activePageIndex]?.id;
+    const next = pages.filter((_, idx) => idx !== i);
+    syncPagesToExtension(next);
+    const stillThere = next.findIndex((p) => p.id === activeId);
+    setActivePageIndex(stillThere >= 0 ? stillThere : clampIndex(i, next.length));
+  };
+
+  const handleReorderPages = (from: number | null, to: number) => {
+    setDragPageIndex(null);
+    if (from === null || from === to) return;
+    const activeId = pages[activePageIndex]?.id;
+    const next = [...pages];
+    const [moved] = next.splice(from, 1);
+    next.splice(to, 0, moved);
+    syncPagesToExtension(next);
+    const found = next.findIndex((p) => p.id === activeId);
+    setActivePageIndex(found >= 0 ? found : clampIndex(activePageIndex, next.length));
+  };
+
+  const renderBlocks = (blockList: ArchDocumentBlock[]) =>
+    blockList.map((block, index) => {
+      if (block.type === 'markdown') {
+        return (
+          <MarkdownBlockEditor
+            key={block.id}
+            markdown={block.content}
+            onChange={(md) => updateMarkdownBlock(block.id, md)}
+            onInsertBoxBelow={() => handleInsertBoxAfter(index)}
+            onInsertSeqBelow={() => handleInsertSeqAfter(index)}
+            onDeleteBlock={() => handleDeleteBlock(block.id)}
+            canDelete={blockList.length > 1}
+          />
+        );
+      }
+
+      if (block.type === 'arch-box' && block.boxDiagram) {
+        return (
+          <ArchBoxEditor
+            key={block.id}
+            diagram={block.boxDiagram}
+            library={library}
+            onChange={(updated) => updateBoxDiagramBlock(block.id, updated)}
+            onDeleteBlock={() => handleDeleteBlock(block.id)}
+          />
+        );
+      }
+
+      if (block.type === 'arch-seq' && block.seqDiagram) {
+        return (
+          <ArchSeqEditor
+            key={block.id}
+            diagram={block.seqDiagram}
+            library={library}
+            onChange={(updated) => updateSeqDiagramBlock(block.id, updated)}
+            onDeleteBlock={() => handleDeleteBlock(block.id)}
+          />
+        );
+      }
+
+      if (block.type === 'arch-db' && block.dbDiagram) {
+        return (
+          <ArchDbEditor
+            key={block.id}
+            diagram={block.dbDiagram}
+            onChange={(updated) => updateDbDiagramBlock(block.id, updated)}
+            onDeleteBlock={() => handleDeleteBlock(block.id)}
+          />
+        );
+      }
+
+      return null;
+    });
 
   return (
     <div className="arch-app-shell">
@@ -406,32 +576,67 @@ export const App: React.FC = () => {
         </div>
 
         <div className="arch-topbar-actions">
-          <button
-            type="button"
-            className="arch-top-btn"
-            onClick={handleAddMarkdownAtEnd}
-          >
-            <FileText size={15} />
-            <span>+ Section Markdown</span>
-          </button>
-          <button
-            type="button"
-            className="arch-top-btn"
-            onClick={() => handleInsertBoxAfter(blocks.length - 1)}
-          >
-            <Network size={15} />
-            <span>+ Schéma de Boîtes</span>
-          </button>
-          <button
-            type="button"
-            className="arch-top-btn"
-            onClick={() => handleInsertSeqAfter(blocks.length - 1)}
-          >
-            <GitCommitHorizontal size={15} />
-            <span>+ Schéma de Séquence</span>
-          </button>
+          <div className="arch-mode-toggle" role="group" aria-label="Mode">
+            <button
+              type="button"
+              className={`arch-mode-btn${viewMode === 'edit' ? ' active' : ''}`}
+              onClick={() => setViewMode('edit')}
+              title="Mode édition"
+            >
+              <Pencil size={14} />
+              <span>Édition</span>
+            </button>
+            <button
+              type="button"
+              className={`arch-mode-btn${viewMode === 'view' ? ' active' : ''}`}
+              onClick={() => setViewMode('view')}
+              title="Mode visualisation (schémas intégrés, lecture seule)"
+            >
+              <Eye size={14} />
+              <span>Visualisation</span>
+            </button>
+          </div>
 
           <span className="arch-topbar-divider" />
+
+          {viewMode === 'edit' && (
+            <>
+              <button
+                type="button"
+                className="arch-top-btn"
+                onClick={handleAddMarkdownAtEnd}
+              >
+                <FileText size={15} />
+                <span>+ Section Markdown</span>
+              </button>
+              <button
+                type="button"
+                className="arch-top-btn"
+                onClick={() => handleInsertBoxAfter(activeBlocks.length - 1)}
+              >
+                <Network size={15} />
+                <span>+ Schéma de Boîtes</span>
+              </button>
+              <button
+                type="button"
+                className="arch-top-btn"
+                onClick={() => handleInsertSeqAfter(activeBlocks.length - 1)}
+              >
+                <GitCommitHorizontal size={15} />
+                <span>+ Schéma de Séquence</span>
+              </button>
+              <button
+                type="button"
+                className="arch-top-btn"
+                onClick={() => handleInsertDbAfter(activeBlocks.length - 1)}
+              >
+                <Database size={15} />
+                <span>+ Schéma BDD</span>
+              </button>
+
+              <span className="arch-topbar-divider" />
+            </>
+          )}
 
           <button
             type="button"
@@ -474,6 +679,82 @@ export const App: React.FC = () => {
         </div>
       </header>
 
+      {/* Barre de navigation des pages */}
+      <nav className="arch-pagebar no-print">
+        <div className="arch-pagebar-tabs">
+          {pages.map((page, i) => (
+            <div
+              key={page.id}
+              className={
+                'arch-page-tab' +
+                (i === activePageIndex ? ' active' : '') +
+                (dragPageIndex === i ? ' dragging' : '')
+              }
+              draggable={viewMode === 'edit' && editingPageIndex !== i}
+              onDragStart={() => setDragPageIndex(i)}
+              onDragOver={(e) => e.preventDefault()}
+              onDrop={() => handleReorderPages(dragPageIndex, i)}
+              onDragEnd={() => setDragPageIndex(null)}
+              onClick={() => handleSelectPage(i)}
+              onDoubleClick={
+                viewMode === 'edit' ? () => setEditingPageIndex(i) : undefined
+              }
+              title={
+                viewMode === 'edit'
+                  ? `${page.title} — double-clic pour renommer`
+                  : page.title
+              }
+            >
+              {editingPageIndex === i ? (
+                <input
+                  className="arch-page-tab-input"
+                  autoFocus
+                  defaultValue={page.title}
+                  onClick={(e) => e.stopPropagation()}
+                  onBlur={(e) => handleRenamePage(i, e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      handleRenamePage(i, (e.target as HTMLInputElement).value);
+                    } else if (e.key === 'Escape') {
+                      setEditingPageIndex(null);
+                    }
+                  }}
+                />
+              ) : (
+                <>
+                  <span className="arch-page-tab-index">{i + 1}</span>
+                  <span className="arch-page-tab-label">{page.title}</span>
+                  {viewMode === 'edit' && pages.length > 1 && (
+                    <button
+                      type="button"
+                      className="arch-page-tab-close"
+                      title="Supprimer la page"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeletePage(i);
+                      }}
+                    >
+                      <X size={12} />
+                    </button>
+                  )}
+                </>
+              )}
+            </div>
+          ))}
+        </div>
+        {viewMode === 'edit' && (
+          <button
+            type="button"
+            className="arch-page-add"
+            onClick={handleAddPage}
+            title="Ajouter une page"
+          >
+            <Plus size={15} />
+            <span>Page</span>
+          </button>
+        )}
+      </nav>
+
       {/* Conteneur principal du document WYSIWYG (imprimable / exportable en PDF) */}
       <main className="arch-document-scroll">
         <div
@@ -481,78 +762,65 @@ export const App: React.FC = () => {
           ref={printableRef}
           className="arch-document-page"
         >
-          {blocks.map((block, index) => {
-            if (block.type === 'markdown') {
-              return (
-                <MarkdownBlockEditor
-                  key={block.id}
-                  markdown={block.content}
-                  onChange={(md) => updateMarkdownBlock(block.id, md)}
-                  onInsertBoxBelow={() => handleInsertBoxAfter(index)}
-                  onInsertSeqBelow={() => handleInsertSeqAfter(index)}
-                  onDeleteBlock={() => handleDeleteBlock(block.id)}
-                  canDelete={blocks.length > 1}
-                />
-              );
-            }
+          {exportAllPages ? (
+            pages.map((page, pi) => (
+              <section
+                key={page.id}
+                className={'arch-print-page' + (pi > 0 ? ' arch-page-break' : '')}
+              >
+                {renderBlocks(page.blocks)}
+              </section>
+            ))
+          ) : viewMode === 'view' ? (
+            <div className="arch-view-stack">
+              {activeBlocks.map((block) => (
+                <BlockView key={block.id} block={block} library={library} />
+              ))}
+            </div>
+          ) : (
+            <>
+              {renderBlocks(activeBlocks)}
 
-            if (block.type === 'arch-box' && block.boxDiagram) {
-              return (
-                <ArchBoxEditor
-                  key={block.id}
-                  diagram={block.boxDiagram}
-                  library={library}
-                  onChange={(updated) => updateBoxDiagramBlock(block.id, updated)}
-                  onDeleteBlock={() => handleDeleteBlock(block.id)}
-                />
-              );
-            }
-
-            if (block.type === 'arch-seq' && block.seqDiagram) {
-              return (
-                <ArchSeqEditor
-                  key={block.id}
-                  diagram={block.seqDiagram}
-                  library={library}
-                  onChange={(updated) => updateSeqDiagramBlock(block.id, updated)}
-                  onDeleteBlock={() => handleDeleteBlock(block.id)}
-                />
-              );
-            }
-
-            return null;
-          })}
-
-          {/* Barre d'insertion rapide en bas de document */}
-          <div className="arch-bottom-insert-bar no-print">
-            <span className="arch-bottom-insert-label">
-              Ajouter au document :
-            </span>
-            <button
-              type="button"
-              className="arch-insert-card-btn"
-              onClick={handleAddMarkdownAtEnd}
-            >
-              <FileText size={16} />
-              <span>+ Texte Markdown</span>
-            </button>
-            <button
-              type="button"
-              className="arch-insert-card-btn box"
-              onClick={() => handleInsertBoxAfter(blocks.length - 1)}
-            >
-              <Network size={16} />
-              <span>+ Diagramme de Boîtes Connectées</span>
-            </button>
-            <button
-              type="button"
-              className="arch-insert-card-btn seq"
-              onClick={() => handleInsertSeqAfter(blocks.length - 1)}
-            >
-              <GitCommitHorizontal size={16} />
-              <span>+ Diagramme de Séquence</span>
-            </button>
-          </div>
+              {/* Barre d'insertion rapide en bas de page */}
+              <div className="arch-bottom-insert-bar no-print">
+                <span className="arch-bottom-insert-label">
+                  Ajouter à la page « {activePage?.title} » :
+                </span>
+                <button
+                  type="button"
+                  className="arch-insert-card-btn"
+                  onClick={handleAddMarkdownAtEnd}
+                >
+                  <FileText size={16} />
+                  <span>+ Texte Markdown</span>
+                </button>
+                <button
+                  type="button"
+                  className="arch-insert-card-btn box"
+                  onClick={() => handleInsertBoxAfter(activeBlocks.length - 1)}
+                >
+                  <Network size={16} />
+                  <span>+ Diagramme de Boîtes Connectées</span>
+                </button>
+                <button
+                  type="button"
+                  className="arch-insert-card-btn seq"
+                  onClick={() => handleInsertSeqAfter(activeBlocks.length - 1)}
+                >
+                  <GitCommitHorizontal size={16} />
+                  <span>+ Diagramme de Séquence</span>
+                </button>
+                <button
+                  type="button"
+                  className="arch-insert-card-btn db"
+                  onClick={() => handleInsertDbAfter(activeBlocks.length - 1)}
+                >
+                  <Database size={16} />
+                  <span>+ Schéma de Base de Données</span>
+                </button>
+              </div>
+            </>
+          )}
         </div>
       </main>
 
@@ -634,11 +902,13 @@ export const App: React.FC = () => {
               <textarea
                 className="arch-yaml-textarea"
                 rows={24}
-                value={serializeArchDocument(blocks)}
+                value={serializeArchDocument(flattenPagesToBlocks(pages))}
                 onChange={(e) => {
                   const nextText = e.target.value;
                   lastSerializedRef.current = nextText;
-                  setBlocks(parseArchDocument(nextText));
+                  const nextPages = splitBlocksIntoPages(parseArchDocument(nextText));
+                  setPages(nextPages);
+                  setActivePageIndex((prev) => clampIndex(prev, nextPages.length));
                   vscodeBridge.postMessage({
                     type: 'updateDocument',
                     documentText: nextText,

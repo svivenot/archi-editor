@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ReactFlow,
   Background,
@@ -12,7 +12,9 @@ import {
   Connection,
   NodeChange,
   applyNodeChanges,
+  useNodesState,
   NodeProps,
+  ReactFlowInstance,
 } from '@xyflow/react';
 import '@xyflow/react/dist/style.css';
 import dagre from '@dagrejs/dagre';
@@ -21,11 +23,13 @@ import {
   ArchBoxEdge,
   ArchBoxNode,
   ArchEdgeStyle,
+  ArchHandleSide,
   ComponentDefinition,
   ComponentLibrary,
 } from '@shared/archTypes';
 import { parseBoxYaml, serializeBoxYaml } from '@shared/documentParser';
 import { ArchSymbol } from '../../symbols/ArchSymbolRegistry';
+import { useFullscreen, FullscreenButton } from '../fullscreen';
 import {
   Search,
   Plus,
@@ -42,6 +46,47 @@ interface ArchNodeData extends Record<string, unknown> {
   archNode: ArchBoxNode;
   compDef: ComponentDefinition;
 }
+
+const HANDLE_SIDES = ['left', 'right', 'top', 'bottom'] as const;
+type HandleSide = (typeof HANDLE_SIDES)[number];
+
+const SIDE_POSITION: Record<HandleSide, Position> = {
+  left: Position.Left,
+  right: Position.Right,
+  top: Position.Top,
+  bottom: Position.Bottom,
+};
+
+/** Convertit un id de poignée React Flow (ex. « s-top ») en côté (« top »). */
+function sideFromHandleId(handleId?: string | null): HandleSide | undefined {
+  if (!handleId) return undefined;
+  const side = handleId.replace(/^[st]-/, '');
+  return (HANDLE_SIDES as readonly string[]).includes(side)
+    ? (side as HandleSide)
+    : undefined;
+}
+
+/** Chaque côté porte une poignée source ET une poignée cible : on peut relier par n'importe quel bord. */
+const SideHandles: React.FC = () => (
+  <>
+    {HANDLE_SIDES.map((side) => (
+      <React.Fragment key={side}>
+        <Handle
+          type="target"
+          id={`t-${side}`}
+          position={SIDE_POSITION[side]}
+          className="arch-rf-handle"
+        />
+        <Handle
+          type="source"
+          id={`s-${side}`}
+          position={SIDE_POSITION[side]}
+          className="arch-rf-handle"
+        />
+      </React.Fragment>
+    ))}
+  </>
+);
 
 const ArchComponentNodeView: React.FC<NodeProps<Node<ArchNodeData>>> = ({
   data,
@@ -62,7 +107,7 @@ const ArchComponentNodeView: React.FC<NodeProps<Node<ArchNodeData>>> = ({
           backgroundColor: `${compDef.color}0D`,
         }}
       >
-        <Handle type="target" position={Position.Left} className="arch-rf-handle" />
+        <SideHandles />
         <div
           className="arch-rf-container-header"
           style={{ borderBottomColor: `${compDef.color}40` }}
@@ -84,7 +129,6 @@ const ArchComponentNodeView: React.FC<NodeProps<Node<ArchNodeData>>> = ({
             </div>
           )}
         </div>
-        <Handle type="source" position={Position.Right} className="arch-rf-handle" />
       </div>
     );
   }
@@ -99,18 +143,7 @@ const ArchComponentNodeView: React.FC<NodeProps<Node<ArchNodeData>>> = ({
           : undefined,
       }}
     >
-      <Handle
-        type="target"
-        position={Position.Left}
-        id="t-left"
-        className="arch-rf-handle"
-      />
-      <Handle
-        type="target"
-        position={Position.Top}
-        id="t-top"
-        className="arch-rf-handle"
-      />
+      <SideHandles />
 
       {compDef.shape === 'cylinder' && (
         <div
@@ -156,18 +189,6 @@ const ArchComponentNodeView: React.FC<NodeProps<Node<ArchNodeData>>> = ({
         )}
       </div>
 
-      <Handle
-        type="source"
-        position={Position.Right}
-        id="s-right"
-        className="arch-rf-handle"
-      />
-      <Handle
-        type="source"
-        position={Position.Bottom}
-        id="s-bottom"
-        className="arch-rf-handle"
-      />
     </div>
   );
 };
@@ -189,6 +210,7 @@ export const ArchBoxEditor: React.FC<ArchBoxEditorProps> = ({
   onChange,
   onDeleteBlock,
 }) => {
+  const [fullscreen, setFullscreen] = useFullscreen();
   const [showPalette, setShowPalette] = useState(true);
   const [selectedCategory, setSelectedCategory] = useState<string>('all');
   const [searchQuery, setSearchQuery] = useState('');
@@ -208,9 +230,39 @@ export const ArchBoxEditor: React.FC<ArchBoxEditorProps> = ({
   const [newPropKey, setNewPropKey] = useState('');
   const [newPropVal, setNewPropVal] = useState('');
 
+  // Instance React Flow conservée pour pouvoir recadrer la vue à la demande
+  const rfInstanceRef = useRef<ReactFlowInstance<Node<ArchNodeData>, Edge> | null>(
+    null
+  );
+
+  // Options de recadrage partagées : minZoom bas pour que les grands schémas
+  // tiennent entièrement dans la vue (sinon React Flow bride à 0.5 et coupe les boîtes)
+  const fitViewOptions = useMemo(
+    () => ({ padding: 0.2, minZoom: 0.1, maxZoom: 1.5, duration: 300 }),
+    []
+  );
+
   useEffect(() => {
     setRawYamlText(serializeBoxYaml(diagram));
   }, [diagram]);
+
+  // Identité de l'ensemble des boîtes : change à l'ajout/suppression, pas au déplacement
+  const nodeIdsKey = useMemo(
+    () => diagram.nodes.map((n) => n.id).join(','),
+    [diagram.nodes]
+  );
+
+  // Recadre automatiquement quand des boîtes sont ajoutées/retirées (ex: via l'agent MCP)
+  useEffect(() => {
+    if (yamlMode) return;
+    const inst = rfInstanceRef.current;
+    if (!inst) return;
+    // Laisse React Flow mesurer les nouveaux nœuds avant de recadrer
+    const raf = requestAnimationFrame(() => {
+      inst.fitView(fitViewOptions);
+    });
+    return () => cancelAnimationFrame(raf);
+  }, [nodeIdsKey, yamlMode, fitViewOptions]);
 
   const componentMap = useMemo(() => {
     const map = new Map<string, ComponentDefinition>();
@@ -237,7 +289,8 @@ export const ArchBoxEditor: React.FC<ArchBoxEditorProps> = ({
   );
 
   // Convert ArchBoxDiagram nodes to ReactFlow nodes (containers first so they render behind)
-  const rfNodes: Node<ArchNodeData>[] = useMemo(() => {
+  // Nœuds « souhaités » dérivés du diagramme (source de vérité).
+  const desiredNodes: Node<ArchNodeData>[] = useMemo(() => {
     const sorted = [...diagram.nodes].sort((a, b) => {
       const aCont = resolveComponent(a.componentRef).isContainer ? 0 : 1;
       const bCont = resolveComponent(b.componentRef).isContainer ? 0 : 1;
@@ -261,6 +314,24 @@ export const ArchBoxEditor: React.FC<ArchBoxEditorProps> = ({
     });
   }, [diagram.nodes, resolveComponent, selectedNodeId]);
 
+  // État des nœuds géré par React Flow (conserve les dimensions mesurées et l'identité
+  // des nœuds : indispensable pour que le drag reste initialisé et que les liens ne
+  // disparaissent pas pendant un déplacement).
+  const [rfNodes, setRfNodes, onRfNodesChange] =
+    useNodesState<Node<ArchNodeData>>(desiredNodes);
+
+  // Réconcilie l'état React Flow avec le diagramme sans perdre les dimensions mesurées.
+  useEffect(() => {
+    setRfNodes((prev) => {
+      const prevById = new Map(prev.map((n) => [n.id, n]));
+      return desiredNodes.map((d) => {
+        const p = prevById.get(d.id);
+        if (!p) return d;
+        return { ...p, position: d.position, selected: d.selected, zIndex: d.zIndex, data: d.data };
+      });
+    });
+  }, [desiredNodes, setRfNodes]);
+
   const rfEdges: Edge[] = useMemo(() => {
     return diagram.edges.map((e) => {
       const fullLabel = [e.label, e.protocol ? `[${e.protocol}]` : '']
@@ -278,6 +349,11 @@ export const ArchBoxEditor: React.FC<ArchBoxEditorProps> = ({
         id: e.id,
         source: e.source,
         target: e.target,
+        sourceHandle: `s-${e.sourceHandle || 'right'}`,
+        targetHandle: `t-${e.targetHandle || 'left'}`,
+        // Seul le lien sélectionné est reconnectable : l'ancrage que l'on attrape est
+        // sans ambiguïté celui de ce lien, même quand plusieurs liens se superposent.
+        reconnectable: isSelected,
         label: fullLabel || undefined,
         animated: Boolean(e.animated),
         selected: isSelected,
@@ -315,6 +391,17 @@ export const ArchBoxEditor: React.FC<ArchBoxEditorProps> = ({
 
   const handleNodesChange = useCallback(
     (changes: NodeChange<Node<ArchNodeData>>[]) => {
+      // Laisse React Flow appliquer tous les changements (position fluide, dimensions, sélection)
+      // sur son propre état : le drag reste initialisé et les liens gardent leurs poignées.
+      onRfNodesChange(changes);
+
+      // On ne remonte au document qu'en fin de déplacement (ou déplacement clavier),
+      // pas à chaque micro-mouvement : évite les rafales d'écriture et les resynchros.
+      const positionCommit = changes.some(
+        (c) => c.type === 'position' && c.dragging !== true
+      );
+      if (!positionCommit) return;
+
       const updatedRf = applyNodeChanges(changes, rfNodes);
       const posMap = new Map<string, { x: number; y: number }>();
       for (const item of updatedRf) {
@@ -341,12 +428,14 @@ export const ArchBoxEditor: React.FC<ArchBoxEditorProps> = ({
         onChange({ ...diagram, nodes: nextNodes });
       }
     },
-    [rfNodes, diagram, onChange]
+    [onRfNodesChange, rfNodes, diagram, onChange]
   );
 
   const handleConnect = useCallback(
     (connection: Connection) => {
       if (!connection.source || !connection.target) return;
+      const sourceSide = sideFromHandleId(connection.sourceHandle);
+      const targetSide = sideFromHandleId(connection.targetHandle);
       const newEdge: ArchBoxEdge = {
         id: `edge-${Date.now()}`,
         source: connection.source,
@@ -355,11 +444,41 @@ export const ArchBoxEditor: React.FC<ArchBoxEditorProps> = ({
         protocol: 'HTTPS',
         style: 'solid',
       };
+      // On ne stocke le côté que s'il diffère du défaut (droite → gauche) pour garder le YAML sobre.
+      if (sourceSide && sourceSide !== 'right') newEdge.sourceHandle = sourceSide;
+      if (targetSide && targetSide !== 'left') newEdge.targetHandle = targetSide;
       onChange({
         ...diagram,
         edges: [...diagram.edges, newEdge],
       });
       setSelectedEdgeId(newEdge.id);
+      setSelectedNodeId(null);
+    },
+    [diagram, onChange]
+  );
+
+  // Reconnexion d'une extrémité de lien existant : on peut tirer le bout d'une arête vers
+  // une autre boîte ou un autre côté (ex. faire passer l'ancrage de gauche vers le bas).
+  const handleReconnect = useCallback(
+    (oldEdge: Edge, connection: Connection) => {
+      if (!connection.source || !connection.target) return;
+      const sourceSide = sideFromHandleId(connection.sourceHandle);
+      const targetSide = sideFromHandleId(connection.targetHandle);
+      onChange({
+        ...diagram,
+        edges: diagram.edges.map((e) => {
+          if (e.id !== oldEdge.id) return e;
+          return {
+            ...e,
+            source: connection.source!,
+            target: connection.target!,
+            // undefined = retour au côté par défaut (droite pour la source, gauche pour la cible)
+            sourceHandle: sourceSide && sourceSide !== 'right' ? sourceSide : undefined,
+            targetHandle: targetSide && targetSide !== 'left' ? targetSide : undefined,
+          };
+        }),
+      });
+      setSelectedEdgeId(oldEdge.id);
       setSelectedNodeId(null);
     },
     [diagram, onChange]
@@ -521,7 +640,7 @@ export const ArchBoxEditor: React.FC<ArchBoxEditorProps> = ({
   };
 
   return (
-    <div className="arch-diagram-card">
+    <div className={`arch-diagram-card${fullscreen ? ' fullscreen' : ''}`}>
       {/* Barre d'en-tête du diagramme de boîtes */}
       <div className="arch-diagram-header">
         <div className="arch-diagram-header-left">
@@ -563,6 +682,10 @@ export const ArchBoxEditor: React.FC<ArchBoxEditorProps> = ({
             <Code2 size={14} />
             <span>YAML</span>
           </button>
+          <FullscreenButton
+            fullscreen={fullscreen}
+            onToggle={() => setFullscreen((v) => !v)}
+          />
           <button
             type="button"
             className="arch-btn-icon danger"
@@ -738,8 +861,13 @@ export const ArchBoxEditor: React.FC<ArchBoxEditorProps> = ({
               nodes={rfNodes}
               edges={rfEdges}
               nodeTypes={nodeTypes}
+              onInit={(inst) => {
+                rfInstanceRef.current = inst;
+                inst.fitView(fitViewOptions);
+              }}
               onNodesChange={handleNodesChange}
               onConnect={handleConnect}
+              onReconnect={handleReconnect}
               onNodeClick={(_e, node) => {
                 setSelectedNodeId(node.id);
                 setSelectedEdgeId(null);
@@ -753,7 +881,9 @@ export const ArchBoxEditor: React.FC<ArchBoxEditorProps> = ({
                 setSelectedEdgeId(null);
               }}
               fitView
-              fitViewOptions={{ padding: 0.16 }}
+              fitViewOptions={fitViewOptions}
+              minZoom={0.1}
+              maxZoom={2}
               proOptions={{ hideAttribution: true }}
             >
               <Background gap={18} size={1} color="#CBD5E1" />
@@ -979,6 +1109,45 @@ export const ArchBoxEditor: React.FC<ArchBoxEditorProps> = ({
                     <option value="dashed">Pointillé (Asynchrone / Event)</option>
                     <option value="dotted">Pointillé fin</option>
                   </select>
+
+                  <div className="arch-field-row">
+                    <div className="arch-field-col">
+                      <label className="arch-field-label">Ancrage source</label>
+                      <select
+                        className="arch-field-input"
+                        value={selectedEdge.sourceHandle || 'right'}
+                        onChange={(e) => {
+                          const v = e.target.value as ArchHandleSide;
+                          updateSelectedEdge({
+                            sourceHandle: v === 'right' ? undefined : v,
+                          });
+                        }}
+                      >
+                        <option value="left">Gauche</option>
+                        <option value="right">Droite</option>
+                        <option value="top">Haut</option>
+                        <option value="bottom">Bas</option>
+                      </select>
+                    </div>
+                    <div className="arch-field-col">
+                      <label className="arch-field-label">Ancrage cible</label>
+                      <select
+                        className="arch-field-input"
+                        value={selectedEdge.targetHandle || 'left'}
+                        onChange={(e) => {
+                          const v = e.target.value as ArchHandleSide;
+                          updateSelectedEdge({
+                            targetHandle: v === 'left' ? undefined : v,
+                          });
+                        }}
+                      >
+                        <option value="left">Gauche</option>
+                        <option value="right">Droite</option>
+                        <option value="top">Haut</option>
+                        <option value="bottom">Bas</option>
+                      </select>
+                    </div>
+                  </div>
 
                   <label className="arch-checkbox-row">
                     <input

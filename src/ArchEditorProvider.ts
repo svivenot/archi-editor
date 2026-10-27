@@ -63,8 +63,38 @@ export class ArchEditorProvider implements vscode.CustomTextEditorProvider {
 
     webviewPanel.webview.html = this.getHtmlForWebview(webviewPanel.webview);
 
-    let isApplyingWebviewEdit = false;
     let lastWebviewText = document.getText();
+    // File d'écriture : on ne conserve que le dernier texte à appliquer et on
+    // sérialise les WorkspaceEdit pour éviter les éditions concurrentes à plage
+    // périmée (qui corrompaient le document pendant un drag → schéma vidé).
+    let pendingWebviewText: string | null = null;
+    let isFlushingEdits = false;
+
+    const flushWebviewEdits = async () => {
+      if (isFlushingEdits) {
+        return;
+      }
+      isFlushingEdits = true;
+      try {
+        while (pendingWebviewText !== null) {
+          const nextText = pendingWebviewText;
+          pendingWebviewText = null;
+          if (nextText === document.getText()) {
+            continue;
+          }
+          lastWebviewText = nextText;
+          const fullRange = new vscode.Range(
+            document.positionAt(0),
+            document.positionAt(document.getText().length)
+          );
+          const edit = new vscode.WorkspaceEdit();
+          edit.replace(document.uri, fullRange, nextText);
+          await vscode.workspace.applyEdit(edit);
+        }
+      } finally {
+        isFlushingEdits = false;
+      }
+    };
 
     const postMessage = (message: ExtensionToWebviewMessage) => {
       webviewPanel.webview.postMessage(message);
@@ -79,7 +109,8 @@ export class ArchEditorProvider implements vscode.CustomTextEditorProvider {
         if (e.document.uri.toString() !== docKey) {
           return;
         }
-        if (isApplyingWebviewEdit) {
+        // Ignore les changements provoqués par nos propres écritures (drag, édition webview)
+        if (isFlushingEdits) {
           return;
         }
         const currentText = e.document.getText();
@@ -113,22 +144,10 @@ export class ArchEditorProvider implements vscode.CustomTextEditorProvider {
           }
 
           case 'updateDocument': {
-            if (message.documentText === document.getText()) {
-              return;
-            }
-            lastWebviewText = message.documentText;
-            isApplyingWebviewEdit = true;
-            try {
-              const edit = new vscode.WorkspaceEdit();
-              edit.replace(
-                document.uri,
-                new vscode.Range(0, 0, document.lineCount, 0),
-                message.documentText
-              );
-              await vscode.workspace.applyEdit(edit);
-            } finally {
-              isApplyingWebviewEdit = false;
-            }
+            // Coalesce les rafales (ex: drag) : seul le dernier texte est appliqué,
+            // les éditions sont sérialisées par flushWebviewEdits.
+            pendingWebviewText = message.documentText;
+            void flushWebviewEdits();
             break;
           }
 
